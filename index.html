@@ -726,85 +726,55 @@
 
                 console.log(`Resolved to UniProt ID: ${currentUniProt} (${currentGene})`);
 
-                // 2. Search PDB for structures
+                // 2. Search PDB for structures using POST API
                 setStatus(`Step 2/4: Searching PDB for experimental structures...`, 'loading');
 
                 let pdbIds = [];
                 try {
-                    // Method 1: Try GraphQL API (most reliable for UniProt lookups)
                     console.log(`Searching PDB for UniProt ${currentUniProt}...`);
-                    const graphqlQuery = `{
-                        polymer_entity_instances(where: {
-                            rcsb_polymer_entity_instance_container_identifiers: {
-                                reference_sequence_identifiers: {
-                                    database_accession: {_eq: "${currentUniProt}"}
-                                    database_name: {_eq: "UniProt"}
-                                }
+
+                    const postQuery = {
+                        query: {
+                            type: "terminal",
+                            service: "text",
+                            parameters: {
+                                attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
+                                operator: "exact_match",
+                                value: currentUniProt
                             }
-                        }) {
-                            rcsb_id
-                            rcsb_polymer_entity_instance_container_identifiers {
-                                entry_id
+                        },
+                        return_type: "entry",
+                        request_options: {
+                            pager: {
+                                start: 0,
+                                rows: 100
                             }
                         }
-                    }`;
+                    };
 
-                    const graphqlSearch = await fetchWithRetry('https://data.rcsb.org/graphql', {
+                    const postSearch = await fetchWithRetry('https://search.rcsb.org/rcsbsearch/v2/query', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({query: graphqlQuery})
-                    }, 2);
+                        body: JSON.stringify(postQuery)
+                    }, 3);
 
-                    if (graphqlSearch.ok) {
-                        const graphqlData = await graphqlSearch.json();
-                        if (graphqlData.data?.polymer_entity_instances) {
-                            // Extract unique entry IDs
-                            const entrySet = new Set();
-                            graphqlData.data.polymer_entity_instances.forEach(inst => {
-                                const entryId = inst.rcsb_polymer_entity_instance_container_identifiers?.entry_id;
-                                if (entryId) entrySet.add(entryId);
-                            });
-                            pdbIds = Array.from(entrySet);
-                            console.log(`GraphQL found ${pdbIds.length} PDB entries: ${pdbIds.slice(0, 5).join(', ')}${pdbIds.length > 5 ? '...' : ''}`);
+                    if (postSearch.ok) {
+                        const postData = await postSearch.json();
+                        pdbIds = postData.result_set?.map(r => r.identifier) || [];
+                        console.log(`PDB search found ${pdbIds.length} entries for ${currentUniProt}`);
+                        if (pdbIds.length > 0) {
+                            console.log(`First few entries: ${pdbIds.slice(0, 5).join(', ')}${pdbIds.length > 5 ? '...' : ''}`);
                         }
-                    }
-
-                    // Method 2: If GraphQL fails, try POST-based search
-                    if (pdbIds.length === 0) {
-                        console.log('GraphQL search failed or returned no results, trying POST search...');
-                        const postQuery = {
-                            query: {
-                                type: "terminal",
-                                service: "text",
-                                parameters: {
-                                    attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
-                                    operator: "exact_match",
-                                    value: currentUniProt
-                                }
-                            },
-                            return_type: "entry"
-                        };
-
-                        const postSearch = await fetchWithRetry('https://search.rcsb.org/rcsbsearch/v2/query', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify(postQuery)
-                        }, 2);
-
-                        if (postSearch.ok) {
-                            const postData = await postSearch.json();
-                            pdbIds = postData.result_set?.map(r => r.identifier) || [];
-                            console.log(`POST search found ${pdbIds.length} PDB entries`);
-                        } else {
-                            console.warn(`POST search failed with status ${postSearch.status}`);
-                        }
+                    } else {
+                        console.warn(`PDB POST search failed with HTTP ${postSearch.status}`);
+                        setStatus(`PDB search temporarily unavailable (will show AlphaFold if available)`, 'loading');
                     }
 
                     if (pdbIds.length === 0) {
-                        console.warn(`No PDB structures found for ${currentUniProt}. This protein may not have experimental structures.`);
+                        console.warn(`No PDB structures found for ${currentUniProt}. This protein may not have experimental structures deposited in PDB.`);
                         setStatus(`No experimental PDB structures found (will show AlphaFold if available)`, 'loading');
                     } else {
-                        console.log(`Total PDB structures found: ${pdbIds.length}`);
+                        console.log(`Total PDB structures to load: ${pdbIds.length}`);
                     }
 
                 } catch (pdbError) {
@@ -880,7 +850,7 @@
                     availableStructures.unshift({
                         id: 'AlphaFold',
                         type: 'predicted',
-                        title: `AlphaFold predicted structure for ${gene}`,
+                        title: `AlphaFold predicted structure for ${currentGene}`,
                         method: 'AI Prediction',
                         resolution: null,
                         date: null,
