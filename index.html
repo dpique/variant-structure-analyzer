@@ -511,6 +511,84 @@
         let residueCoords = new Map();
         let analysisRadius = 12;
         let allHisShown = false;
+        let isLoadingStructure = false; // Prevent double-clicks
+
+        // Simple cache for API responses
+        const apiCache = new Map();
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+
+        /**
+         * Retry a fetch request with exponential backoff
+         */
+        async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok || response.status === 404) {
+                        return response; // Return even 404s (not found is valid)
+                    }
+                    // For 400/500 errors, retry
+                    if (i === maxRetries - 1) return response;
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    // Exponential backoff: 1s, 2s, 4s
+                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
+                }
+            }
+        }
+
+        /**
+         * Fetch with caching
+         */
+        async function cachedFetch(url, options = {}) {
+            const cacheKey = url + JSON.stringify(options);
+            if (apiCache.has(cacheKey)) {
+                return apiCache.get(cacheKey);
+            }
+            const response = await fetchWithRetry(url, options);
+            if (response.ok) {
+                const clone = response.clone();
+                apiCache.set(cacheKey, clone);
+            }
+            return response;
+        }
+
+        /**
+         * Check if AlphaFold has a prediction for a UniProt ID
+         */
+        async function checkAlphaFoldAvailability(uniprotId) {
+            try {
+                const response = await fetchWithRetry(
+                    `https://alphafold.ebi.ac.uk/api/prediction/${uniprotId}`,
+                    {},
+                    2 // Fewer retries for availability check
+                );
+                if (!response.ok) return false;
+                const data = await response.json();
+                return data && data.length > 0 && data[0].pdbUrl;
+            } catch (error) {
+                console.warn('AlphaFold availability check failed:', error);
+                return false;
+            }
+        }
+
+        /**
+         * Debounce function to prevent multiple rapid calls
+         */
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
         
         // Amino acid properties
         const AA_PROPS = {
@@ -566,16 +644,22 @@
                 setStatus('Please enter a gene symbol', 'error');
                 return;
             }
-            
+
             document.getElementById('search-btn').disabled = true;
             setStatus('Searching for ' + gene + '...', 'loading');
             availableStructures = [];
-            
+
             try {
                 // 1. Get UniProt ID for the gene
-                const uniprotSearch = await fetch(
+                setStatus(`Step 1/4: Looking up ${gene} in UniProt...`, 'loading');
+                const uniprotSearch = await cachedFetch(
                     `https://rest.uniprot.org/uniprotkb/search?query=gene:${gene}+AND+organism_id:9606&fields=accession,gene_names,protein_name&size=1`
                 );
+
+                if (!uniprotSearch.ok) {
+                    throw new Error(`UniProt search failed (HTTP ${uniprotSearch.status}). The API may be temporarily unavailable.`);
+                }
+
                 const uniprotData = await uniprotSearch.json();
                 
                 if (!uniprotData.results || uniprotData.results.length === 0) {
@@ -585,10 +669,11 @@
                 currentUniProt = uniprotData.results[0].primaryAccession;
                 currentGene = gene;
                 
-                const proteinName = uniprotData.results[0].proteinDescription?.recommendedName?.fullName?.value || 
+                const proteinName = uniprotData.results[0].proteinDescription?.recommendedName?.fullName?.value ||
                                    uniprotData.results[0].proteinDescription?.submittedName?.[0]?.fullName?.value || '';
-                
+
                 // 2. Search PDB for structures
+                setStatus(`Step 2/4: Searching PDB for experimental structures...`, 'loading');
                 const pdbQuery = {
                     query: {
                         type: "group",
@@ -612,23 +697,36 @@
                         pager: {start: 0, rows: 25}
                     }
                 };
-                
-                const pdbSearch = await fetch('https://search.rcsb.org/rcsbsearch/v2/query', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(pdbQuery)
-                });
-                
+
                 let pdbIds = [];
-                if (pdbSearch.ok) {
-                    const pdbData = await pdbSearch.json();
-                    pdbIds = pdbData.result_set?.map(r => r.identifier) || [];
+                try {
+                    const pdbSearch = await fetchWithRetry('https://search.rcsb.org/rcsbsearch/v2/query', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(pdbQuery)
+                    });
+
+                    if (pdbSearch.ok) {
+                        const pdbData = await pdbSearch.json();
+                        pdbIds = pdbData.result_set?.map(r => r.identifier) || [];
+                    } else {
+                        console.warn(`PDB search failed with status ${pdbSearch.status}. Continuing with AlphaFold only.`);
+                        setStatus(`Warning: PDB search unavailable (continuing with predictions)`, 'loading');
+                    }
+                } catch (pdbError) {
+                    console.warn('PDB search error:', pdbError);
+                    // Continue without PDB structures
                 }
                 
                 // 3. Get details for each PDB entry
+                setStatus(`Step 3/4: Loading structure details (${pdbIds.length} found)...`, 'loading');
                 for (const pdbId of pdbIds.slice(0, 15)) { // Limit to 15
                     try {
-                        const detailRes = await fetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`);
+                        const detailRes = await cachedFetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`);
+                        if (!detailRes.ok) {
+                            console.warn(`Failed to fetch details for ${pdbId}, skipping`);
+                            continue;
+                        }
                         const detail = await detailRes.json();
                         
                         const struct = {
@@ -661,21 +759,31 @@
                         
                         availableStructures.push(struct);
                     } catch (e) {
-                        console.warn('Failed to fetch details for', pdbId);
+                        console.warn('Failed to fetch details for', pdbId, e);
                     }
                 }
-                
-                // 4. Always add AlphaFold option
-                availableStructures.unshift({
-                    id: 'AlphaFold',
-                    type: 'predicted',
-                    title: `AlphaFold predicted structure for ${gene}`,
-                    method: 'AI Prediction',
-                    resolution: null,
-                    date: null,
-                    tags: [{text: 'Full length', class: 'tag-apo'}],
-                    uniprotId: currentUniProt
-                });
+
+                // 4. Check AlphaFold availability before adding
+                setStatus(`Step 4/4: Checking AlphaFold availability...`, 'loading');
+                const alphafoldAvailable = await checkAlphaFoldAvailability(currentUniProt);
+
+                if (alphafoldAvailable) {
+                    availableStructures.unshift({
+                        id: 'AlphaFold',
+                        type: 'predicted',
+                        title: `AlphaFold predicted structure for ${gene}`,
+                        method: 'AI Prediction',
+                        resolution: null,
+                        date: null,
+                        tags: [{text: 'Full length', class: 'tag-apo'}],
+                        uniprotId: currentUniProt
+                    });
+                } else {
+                    console.warn(`AlphaFold structure not available for ${currentUniProt}`);
+                    if (availableStructures.length === 0) {
+                        throw new Error(`No structures available for ${gene}. AlphaFold prediction not found and no experimental structures in PDB.`);
+                    }
+                }
                 
                 // 5. Display structures
                 displayStructureList();
@@ -748,14 +856,22 @@
         // ============================================
         async function fetchAnnotations(uniprotId) {
             try {
-                const res = await fetch(`https://rest.uniprot.org/uniprotkb/${uniprotId}.json`);
+                const res = await cachedFetch(`https://rest.uniprot.org/uniprotkb/${uniprotId}.json`);
+
+                if (!res.ok) {
+                    console.warn(`UniProt annotations fetch failed with status ${res.status}`);
+                    setStatus(`Warning: Could not load protein annotations`, 'loading');
+                    proteinAnnotations = [];
+                    return;
+                }
+
                 const data = await res.json();
-                
+
                 proteinAnnotations = [];
-                
+
                 if (data.features) {
                     data.features.forEach(f => {
-                        if (['Active site', 'Binding site', 'Site', 'Metal binding', 
+                        if (['Active site', 'Binding site', 'Site', 'Metal binding',
                              'DNA binding', 'Nucleotide binding', 'Domain', 'Region'].includes(f.type)) {
                             proteinAnnotations.push({
                                 type: f.type,
@@ -766,8 +882,12 @@
                         }
                     });
                 }
+
+                console.log(`Loaded ${proteinAnnotations.length} functional annotations from UniProt`);
             } catch (e) {
                 console.error('Failed to fetch annotations:', e);
+                setStatus(`Warning: Could not load protein annotations (${e.message})`, 'loading');
+                proteinAnnotations = [];
             }
         }
         
@@ -776,19 +896,31 @@
         // ============================================
         async function fetchClinVar(gene) {
             clinvarVariants = [];
-            
+
             try {
                 // Search ClinVar for pathogenic variants
                 const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${gene}[gene]+AND+(pathogenic[clinsig]+OR+likely_pathogenic[clinsig])&retmax=200&retmode=json`;
-                const searchRes = await fetch(searchUrl);
+                const searchRes = await cachedFetch(searchUrl);
+
+                if (!searchRes.ok) {
+                    console.warn(`ClinVar search failed with status ${searchRes.status}`);
+                    return;
+                }
+
                 const searchData = await searchRes.json();
-                
+
                 if (searchData.esearchresult?.idlist?.length > 0) {
                     const ids = searchData.esearchresult.idlist.slice(0, 100).join(',');
                     const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=clinvar&id=${ids}&retmode=json`;
-                    const summaryRes = await fetch(summaryUrl);
+                    const summaryRes = await cachedFetch(summaryUrl);
+
+                    if (!summaryRes.ok) {
+                        console.warn(`ClinVar summary fetch failed with status ${summaryRes.status}`);
+                        return;
+                    }
+
                     const summaryData = await summaryRes.json();
-                    
+
                     if (summaryData.result) {
                         Object.values(summaryData.result).forEach(v => {
                             if (v.uid && v.title) {
@@ -808,12 +940,15 @@
                         });
                     }
                 }
-                
+
                 // Sort by position
                 clinvarVariants.sort((a, b) => a.position - b.position);
-                
+
+                console.log(`Loaded ${clinvarVariants.length} pathogenic variants from ClinVar`);
+
             } catch (e) {
                 console.error('ClinVar fetch failed:', e);
+                console.warn('Continuing without ClinVar data');
             }
         }
         
@@ -821,52 +956,109 @@
         // LOAD STRUCTURE
         // ============================================
         async function loadSelectedStructure() {
+            // Prevent double-clicking
+            if (isLoadingStructure) {
+                console.log('Structure load already in progress, ignoring duplicate request');
+                return;
+            }
+
             if (!selectedStructure) {
                 setStatus('Please select a structure', 'error');
                 return;
             }
-            
+
             currentResidue = parseInt(document.getElementById('residue-input').value) || null;
-            
+
+            isLoadingStructure = true;
             document.getElementById('load-btn').disabled = true;
             setStatus('Loading structure...', 'loading');
-            
+
             try {
+                let loadSuccess = false;
+
                 if (selectedStructure.type === 'predicted') {
                     // Fetch AlphaFold
-                    const afRes = await fetch(`https://alphafold.ebi.ac.uk/api/prediction/${selectedStructure.uniprotId}`);
-                    const afData = await afRes.json();
-                    const pdbUrl = afData[0]?.pdbUrl;
-                    if (!pdbUrl) throw new Error('AlphaFold structure not available');
-                    
-                    const pdbRes = await fetch(pdbUrl);
-                    pdbData = await pdbRes.text();
-                } else {
-                    // Fetch PDB
-                    const pdbRes = await fetch(`https://files.rcsb.org/download/${selectedStructure.id}.pdb`);
-                    if (!pdbRes.ok) throw new Error('Failed to fetch PDB');
-                    pdbData = await pdbRes.text();
+                    try {
+                        const afRes = await fetchWithRetry(`https://alphafold.ebi.ac.uk/api/prediction/${selectedStructure.uniprotId}`);
+
+                        if (!afRes.ok) {
+                            throw new Error(`AlphaFold API returned status ${afRes.status}`);
+                        }
+
+                        const afData = await afRes.json();
+                        const pdbUrl = afData[0]?.pdbUrl;
+
+                        if (!pdbUrl) {
+                            throw new Error('AlphaFold structure metadata missing PDB URL');
+                        }
+
+                        setStatus('Downloading AlphaFold PDB file...', 'loading');
+                        const pdbRes = await fetchWithRetry(pdbUrl);
+
+                        if (!pdbRes.ok) {
+                            throw new Error(`Failed to download PDB file (HTTP ${pdbRes.status})`);
+                        }
+
+                        pdbData = await pdbRes.text();
+                        loadSuccess = true;
+                    } catch (afError) {
+                        console.error('AlphaFold load failed:', afError);
+
+                        // Try to fallback to first experimental structure
+                        const expStructure = availableStructures.find(s => s.type === 'experimental');
+                        if (expStructure) {
+                            setStatus(`AlphaFold failed, trying ${expStructure.id}...`, 'loading');
+                            selectedStructure = expStructure;
+                            // Don't throw, continue to experimental structure loading below
+                        } else {
+                            throw new Error(`AlphaFold structure not available: ${afError.message}. No experimental structures to fallback to.`);
+                        }
+                    }
                 }
-                
+
+                if (selectedStructure.type === 'experimental' && !loadSuccess) {
+                    // Fetch PDB
+                    setStatus(`Loading ${selectedStructure.id} from PDB...`, 'loading');
+                    const pdbRes = await fetchWithRetry(`https://files.rcsb.org/download/${selectedStructure.id}.pdb`);
+
+                    if (!pdbRes.ok) {
+                        throw new Error(`Failed to fetch PDB structure ${selectedStructure.id} (HTTP ${pdbRes.status})`);
+                    }
+
+                    pdbData = await pdbRes.text();
+
+                    if (!pdbData || pdbData.length < 100) {
+                        throw new Error('PDB file appears to be empty or corrupted');
+                    }
+                }
+
+                setStatus('Parsing structure...', 'loading');
                 parseStructure();
+
+                if (residueCoords.size === 0) {
+                    throw new Error('No residues found in structure. File may be corrupted.');
+                }
+
                 displayStructure();
-                
+
                 document.getElementById('analysis-panel').classList.remove('hidden');
-                
+
                 if (currentResidue) {
+                    setStatus('Analyzing neighborhood...', 'loading');
                     analyzeNeighborhood();
                 }
-                
+
                 updatePatientVariantsDisplay();
-                
-                setStatus(`✓ Loaded ${selectedStructure.id}`, 'success');
-                
+
+                setStatus(`✓ Loaded ${selectedStructure.id} (${residueCoords.size} residues)`, 'success');
+
             } catch (error) {
                 setStatus('Error: ' + error.message, 'error');
-                console.error(error);
+                console.error('Structure load error:', error);
+            } finally {
+                isLoadingStructure = false;
+                document.getElementById('load-btn').disabled = false;
             }
-            
-            document.getElementById('load-btn').disabled = false;
         }
         
         // ============================================

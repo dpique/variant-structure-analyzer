@@ -69,12 +69,54 @@ A browser-based tool for analyzing genetic variants in their structural context.
 
 ## Limitations
 
-⚠️ **This tool provides computational evidence (PP3) only.**
+**This tool provides computational evidence only.**
 
 - Structural proximity does not establish pathogenicity
 - AlphaFold predictions are not experimental structures
 - ClinVar data may be incomplete for some genes
 - Always combine with other ACMG/AMP evidence types
+
+## Troubleshooting
+
+### Common Issues
+
+**"AlphaFold structure not available"**
+- Not all proteins have AlphaFold predictions available
+- The tool now automatically checks availability and falls back to experimental structures when possible
+- If no structures are available, try searching for a related protein or isoform
+
+**"PDB search failed" or "Warning: PDB search unavailable"**
+- The RCSB PDB API may experience temporary outages
+- The tool will continue with AlphaFold predictions only
+- Try refreshing the page and searching again in a few minutes
+- Check the browser console (F12) for detailed error messages
+
+**"No structures available for [gene]"**
+- The gene may not have any structural data in PDB or AlphaFold
+- Verify the gene symbol is correct (use official HGNC symbols)
+- Try searching by UniProt ID instead of gene symbol
+- Some proteins lack structural coverage
+
+**"Residue not found in structure"**
+- The residue number may be outside the structured region
+- AlphaFold predictions may not cover the full protein sequence
+- Try an experimental structure if available
+- Verify the residue numbering matches the UniProt canonical sequence
+
+**Slow loading or timeouts**
+- Large structures (>1000 residues) may take longer to render
+- The tool includes automatic retry logic with exponential backoff
+- Check your internet connection
+- Try clearing the browser cache and reloading
+
+### Performance Optimizations
+
+The tool now includes several optimizations:
+- **Response caching**: API responses are cached to reduce redundant requests
+- **Retry logic**: Failed API calls are automatically retried (up to 3 attempts)
+- **Load protection**: Button debouncing prevents accidental double-loading
+- **Graceful degradation**: The tool continues working even if some APIs fail
+- **Automatic fallback**: If AlphaFold fails, experimental structures are tried automatically
 
 ## For Clinical Use
 
@@ -98,6 +140,29 @@ https://github.com/dpique/variant-structure-analyzer
 
 MIT License - free for academic and clinical use.
 
+## Recent Improvements (v1.1)
+
+### Reliability Enhancements
+- AlphaFold availability is now checked before display to prevent 404 errors
+- Automatic fallback from AlphaFold to experimental structures when loading fails
+- Better error messages show specific issues instead of generic failures
+- Retry logic with exponential backoff for all API calls (up to 3 attempts)
+- Response caching reduces redundant API requests
+
+### User Experience
+- Progress indicators show each step (4 steps total): UniProt lookup, PDB search, structure details, AlphaFold check
+- Button debouncing prevents accidental double-clicks
+- Graceful degradation: tool continues working even if some APIs fail
+- More informative status messages throughout the workflow
+- Better validation of all API responses before processing
+
+### Bug Fixes
+- Fixed multiple simultaneous structure loads causing errors
+- Fixed silent failures in annotation and ClinVar fetches
+- Improved PDB search error handling (handles 400/500 errors gracefully)
+- Added validation for empty or corrupted structure files
+- Better handling of proteins without AlphaFold predictions
+
 ## Contributing
 
 Issues and pull requests welcome! Particularly interested in:
@@ -105,3 +170,4 @@ Issues and pull requests welcome! Particularly interested in:
 - Additional annotation sources
 - Disease-specific variant databases
 - Improved key finding algorithms
+- Testing with edge cases and rare proteins
