@@ -378,8 +378,8 @@
             <div class="input-section" id="step1">
                 <div class="input-row">
                     <div class="input-group">
-                        <label>Gene Symbol</label>
-                        <input type="text" id="gene-input" placeholder="e.g.,BRCA1, TP53" 
+                        <label>Gene Symbol or UniProt ID</label>
+                        <input type="text" id="gene-input" placeholder="e.g., BRCA1, TP53, P38398"
                                onkeypress="if(event.key==='Enter') searchStructures()">
                     </div>
                     <div class="input-group">
@@ -389,17 +389,18 @@
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="examples">
-                    Try: 
-                    <span class="example-link" onclick="loadExample('BRCA1', 1699)">BRCA1 R1699</span> · 
-                    <span class="example-link" onclick="loadExample('TP53', 248)">TP53 R248</span>
+                    Try:
+                    <span class="example-link" onclick="loadExample('BRCA1', 1699)">BRCA1 R1699</span> ·
+                    <span class="example-link" onclick="loadExample('TP53', 248)">TP53 R248</span> ·
+                    <span class="example-link" onclick="loadExample('P38398', 1699)">P38398 (UniProt)</span>
                 </div>
             </div>
             
             <!-- Step 2: Structure Selection -->
             <div id="structure-panel" class="hidden">
-                <h2>Available Structures</h2>
+                <h2>Available Structures <span style="font-size: 0.75em; color: #8b949e; font-weight: normal;">(click to select)</span></h2>
                 <div class="structure-list" id="structure-list">
                     <!-- Populated dynamically -->
                 </div>
@@ -639,82 +640,131 @@
         // STEP 1: SEARCH FOR GENE
         // ============================================
         async function searchStructures() {
-            const gene = document.getElementById('gene-input').value.trim().toUpperCase();
-            if (!gene) {
-                setStatus('Please enter a gene symbol', 'error');
+            const input = document.getElementById('gene-input').value.trim().toUpperCase();
+            if (!input) {
+                setStatus('Please enter a gene symbol or UniProt ID', 'error');
                 return;
             }
 
             document.getElementById('search-btn').disabled = true;
-            setStatus('Searching for ' + gene + '...', 'loading');
+            setStatus('Searching for ' + input + '...', 'loading');
             availableStructures = [];
 
             try {
-                // 1. Get UniProt ID for the gene
-                setStatus(`Step 1/4: Looking up ${gene} in UniProt...`, 'loading');
-                const uniprotSearch = await cachedFetch(
-                    `https://rest.uniprot.org/uniprotkb/search?query=gene:${gene}+AND+organism_id:9606&fields=accession,gene_names,protein_name&size=1`
-                );
+                // Check if input is a UniProt ID (pattern: letter(s) + 5 digits, e.g., P38398)
+                const isUniProtID = /^[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$/i.test(input);
 
-                if (!uniprotSearch.ok) {
-                    throw new Error(`UniProt search failed (HTTP ${uniprotSearch.status}). The API may be temporarily unavailable.`);
+                let uniprotData;
+                let proteinName = '';
+                let geneName = '';
+
+                if (isUniProtID) {
+                    // Direct UniProt ID lookup
+                    setStatus(`Step 1/4: Looking up UniProt ID ${input}...`, 'loading');
+                    const uniprotRes = await cachedFetch(
+                        `https://rest.uniprot.org/uniprotkb/${input}.json`
+                    );
+
+                    if (!uniprotRes.ok) {
+                        throw new Error(`UniProt ID "${input}" not found (HTTP ${uniprotRes.status})`);
+                    }
+
+                    uniprotData = await uniprotRes.json();
+                    currentUniProt = uniprotData.primaryAccession;
+                    proteinName = uniprotData.proteinDescription?.recommendedName?.fullName?.value ||
+                                 uniprotData.proteinDescription?.submittedName?.[0]?.fullName?.value || '';
+                    geneName = uniprotData.genes?.[0]?.geneName?.value || input;
+                    currentGene = geneName;
+
+                } else {
+                    // Gene symbol search - PREFER REVIEWED ENTRIES (Swiss-Prot)
+                    setStatus(`Step 1/4: Looking up gene ${input} in UniProt...`, 'loading');
+                    const uniprotSearch = await cachedFetch(
+                        `https://rest.uniprot.org/uniprotkb/search?query=gene:${input}+AND+organism_id:9606+AND+reviewed:true&fields=accession,gene_names,protein_name&size=1&sort=score+desc`
+                    );
+
+                    if (!uniprotSearch.ok) {
+                        throw new Error(`UniProt search failed (HTTP ${uniprotSearch.status}). The API may be temporarily unavailable.`);
+                    }
+
+                    const searchData = await uniprotSearch.json();
+
+                    if (!searchData.results || searchData.results.length === 0) {
+                        // Try again without reviewed filter (TrEMBL entries)
+                        console.log('No reviewed entries found, searching all entries...');
+                        const uniprotSearchAll = await cachedFetch(
+                            `https://rest.uniprot.org/uniprotkb/search?query=gene:${input}+AND+organism_id:9606&fields=accession,gene_names,protein_name&size=1&sort=score+desc`
+                        );
+
+                        if (!uniprotSearchAll.ok) {
+                            throw new Error(`Gene "${input}" not found in UniProt`);
+                        }
+
+                        const searchDataAll = await uniprotSearchAll.json();
+                        if (!searchDataAll.results || searchDataAll.results.length === 0) {
+                            throw new Error(`Gene "${input}" not found in UniProt (human)`);
+                        }
+                        uniprotData = searchDataAll.results[0];
+                    } else {
+                        uniprotData = searchData.results[0];
+                    }
+
+                    currentUniProt = uniprotData.primaryAccession;
+                    currentGene = input;
+                    proteinName = uniprotData.proteinDescription?.recommendedName?.fullName?.value ||
+                                 uniprotData.proteinDescription?.submittedName?.[0]?.fullName?.value || '';
                 }
 
-                const uniprotData = await uniprotSearch.json();
-                
-                if (!uniprotData.results || uniprotData.results.length === 0) {
-                    throw new Error(`Gene "${gene}" not found in UniProt`);
-                }
-                
-                currentUniProt = uniprotData.results[0].primaryAccession;
-                currentGene = gene;
-                
-                const proteinName = uniprotData.results[0].proteinDescription?.recommendedName?.fullName?.value ||
-                                   uniprotData.results[0].proteinDescription?.submittedName?.[0]?.fullName?.value || '';
+                console.log(`Resolved to UniProt ID: ${currentUniProt} (${currentGene})`);
 
                 // 2. Search PDB for structures
                 setStatus(`Step 2/4: Searching PDB for experimental structures...`, 'loading');
-                const pdbQuery = {
-                    query: {
-                        type: "group",
-                        logical_operator: "and",
-                        nodes: [
-                            {
-                                type: "terminal",
-                                service: "text",
-                                parameters: {
-                                    attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
-                                    operator: "exact_match",
-                                    value: currentUniProt
-                                }
-                            }
-                        ]
-                    },
-                    return_type: "entry",
-                    request_options: {
-                        results_content_type: ["experimental"],
-                        sort: [{field_name: "rcsb_accession_info.initial_release_date", direction: "desc"}],
-                        pager: {start: 0, rows: 25}
-                    }
-                };
 
                 let pdbIds = [];
                 try {
-                    const pdbSearch = await fetchWithRetry('https://search.rcsb.org/rcsbsearch/v2/query', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(pdbQuery)
-                    });
+                    // Try the simpler text-based search API first
+                    const textSearchUrl = `https://search.rcsb.org/rcsbsearch/v2/query?json=${encodeURIComponent(JSON.stringify({
+                        query: {
+                            type: "terminal",
+                            service: "text",
+                            parameters: {
+                                attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
+                                operator: "exact_match",
+                                value: currentUniProt
+                            }
+                        },
+                        return_type: "entry",
+                        request_options: {
+                            pager: {start: 0, rows: 100}
+                        }
+                    }))}`;
+
+                    const pdbSearch = await fetchWithRetry(textSearchUrl, {}, 2);
 
                     if (pdbSearch.ok) {
                         const pdbData = await pdbSearch.json();
                         pdbIds = pdbData.result_set?.map(r => r.identifier) || [];
+                        console.log(`Found ${pdbIds.length} PDB structures for ${currentUniProt}`);
                     } else {
-                        console.warn(`PDB search failed with status ${pdbSearch.status}. Continuing with AlphaFold only.`);
-                        setStatus(`Warning: PDB search unavailable (continuing with predictions)`, 'loading');
+                        console.warn(`PDB search returned status ${pdbSearch.status}, trying alternative method...`);
+
+                        // Fallback: Try direct REST API search
+                        const restSearchUrl = `https://data.rcsb.org/rest/v1/core/uniprot/${currentUniProt}`;
+                        const restSearch = await fetchWithRetry(restSearchUrl, {}, 2);
+
+                        if (restSearch.ok) {
+                            const restData = await restSearch.json();
+                            if (restData.rcsb_id) {
+                                pdbIds = [restData.rcsb_id];
+                            }
+                        } else {
+                            console.warn(`PDB REST API also failed. Continuing with AlphaFold only.`);
+                            setStatus(`Note: PDB search unavailable, showing AlphaFold prediction only`, 'loading');
+                        }
                     }
                 } catch (pdbError) {
                     console.warn('PDB search error:', pdbError);
+                    setStatus(`Note: PDB search failed (${pdbError.message})`, 'loading');
                     // Continue without PDB structures
                 }
                 
@@ -781,27 +831,37 @@
                 } else {
                     console.warn(`AlphaFold structure not available for ${currentUniProt}`);
                     if (availableStructures.length === 0) {
-                        throw new Error(`No structures available for ${gene}. AlphaFold prediction not found and no experimental structures in PDB.`);
+                        throw new Error(`No structures available for ${currentGene} (${currentUniProt}). AlphaFold prediction not found and no experimental structures in PDB.`);
                     }
                 }
                 
                 // 5. Display structures
                 displayStructureList();
-                
-                // Show protein info
-                document.getElementById('protein-gene').textContent = gene;
+
+                // Show protein info with clear gene/protein distinction
+                const displayGene = currentGene || geneName || 'Unknown';
+                document.getElementById('protein-gene').textContent = displayGene;
                 document.getElementById('protein-name').textContent = proteinName;
-                document.getElementById('protein-uniprot').textContent = `UniProt: ${currentUniProt}`;
+                document.getElementById('protein-uniprot').textContent = `Protein ID: ${currentUniProt} ${uniprotData.entryType === 'UniProtKB reviewed (Swiss-Prot)' ? '✓' : '(TrEMBL)'}`;
                 document.getElementById('protein-info').classList.remove('hidden');
                 
                 // Fetch annotations
                 await fetchAnnotations(currentUniProt);
                 
                 // Fetch ClinVar
-                fetchClinVar(gene);
-                
+                fetchClinVar(currentGene);
+
                 document.getElementById('structure-panel').classList.remove('hidden');
-                setStatus(`Found ${availableStructures.length} structures for ${gene}`, 'success');
+
+                // Count structure types for status message
+                const alphafoldCount = availableStructures.filter(s => s.type === 'predicted').length;
+                const pdbCount = availableStructures.filter(s => s.type === 'experimental').length;
+                let statusMsg = `Found ${availableStructures.length} structure(s): `;
+                if (alphafoldCount > 0) statusMsg += `AlphaFold`;
+                if (alphafoldCount > 0 && pdbCount > 0) statusMsg += ` + `;
+                if (pdbCount > 0) statusMsg += `${pdbCount} PDB`;
+
+                setStatus(statusMsg, 'success');
                 
             } catch (error) {
                 setStatus('Error: ' + error.message, 'error');

@@ -24,10 +24,15 @@ A browser-based tool for analyzing genetic variants in their structural context.
 
 ## How to Use
 
-1. Enter a **UniProt ID** (e.g., `P38398`) or **gene symbol** (e.g., `BRCA1`)
-2. Enter the **residue number** of your variant
-3. Choose structure source (AlphaFold recommended for most proteins)
-4. Click **Analyze Variant**
+1. Enter a **gene symbol** (e.g., `BRCA1`, `TP53`) or **UniProt protein ID** (e.g., `P38398`)
+   - Gene symbols are automatically converted to the corresponding canonical protein
+   - Prefers reviewed Swiss-Prot entries over unreviewed TrEMBL entries
+2. **Select a structure** from the list:
+   - **AlphaFold**: AI-predicted full-length structure (good for overall context)
+   - **PDB experimental**: X-ray, Cryo-EM structures (more reliable but may be partial or contain mutations/ligands)
+   - Click any structure to select it (look for the green highlight)
+3. Enter the **residue number** of your variant (using UniProt canonical numbering)
+4. Click **Analyze Variant** to load the 3D structure and analysis
 
 ### What You'll See
 
@@ -79,6 +84,13 @@ A browser-based tool for analyzing genetic variants in their structural context.
 ## Troubleshooting
 
 ### Common Issues
+
+**Wrong protein returned for gene symbol**
+- The tool now prioritizes reviewed Swiss-Prot entries over unreviewed TrEMBL entries
+- For genes with multiple isoforms, the canonical isoform is selected
+- Check the displayed UniProt ID to verify it's the correct protein
+- If the wrong protein is returned, try searching by the specific UniProt ID instead (e.g., `P38398` for BRCA1)
+- Example: `BRCA1` → should resolve to `P38398`, not `A0A2R8Y7V5` (unreviewed fragment)
 
 **"AlphaFold structure not available"**
 - Not all proteins have AlphaFold predictions available
@@ -142,6 +154,19 @@ MIT License - free for academic and clinical use.
 
 ## Recent Improvements (v1.1)
 
+### Gene/Protein Handling
+- **Fixed**: Gene symbols now correctly map to canonical proteins (e.g., `BRCA1` → `P38398` instead of wrong TrEMBL entries)
+- Prioritizes reviewed Swiss-Prot entries over unreviewed TrEMBL entries
+- Direct UniProt ID input now supported (e.g., `P38398`)
+- Auto-detection of whether input is gene symbol or UniProt ID
+- Clearer display of gene name vs. protein ID in results
+
+### Structure Selection
+- **Improved**: Users can now clearly see and select between AlphaFold and PDB experimental structures
+- Visual distinction between structure types (purple for AlphaFold, blue for PDB)
+- Status messages show exactly what was found (e.g., "Found 6 structures: AlphaFold + 5 PDB")
+- PDB search now uses more robust API with fallback methods
+
 ### Reliability Enhancements
 - AlphaFold availability is now checked before display to prevent 404 errors
 - Automatic fallback from AlphaFold to experimental structures when loading fails
@@ -155,11 +180,13 @@ MIT License - free for academic and clinical use.
 - Graceful degradation: tool continues working even if some APIs fail
 - More informative status messages throughout the workflow
 - Better validation of all API responses before processing
+- Structure list clearly labeled "(click to select)"
 
 ### Bug Fixes
-- Fixed multiple simultaneous structure loads causing errors
-- Fixed silent failures in annotation and ClinVar fetches
-- Improved PDB search error handling (handles 400/500 errors gracefully)
+- **Fixed**: Wrong proteins being returned for common gene symbols
+- **Fixed**: Multiple simultaneous structure loads causing errors
+- **Fixed**: Silent failures in annotation and ClinVar fetches
+- **Fixed**: PDB search 400 errors with improved API query format
 - Added validation for empty or corrupted structure files
 - Better handling of proteins without AlphaFold predictions
 
