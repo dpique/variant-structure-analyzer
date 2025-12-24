@@ -426,11 +426,27 @@
             
             <!-- Analysis Panel -->
             <div id="analysis-panel" class="hidden">
+                <h2>View Controls</h2>
                 <div class="controls">
-                    <button class="btn-secondary" onclick="showOverview()">Overview</button>
-                    <button class="btn-warning" onclick="showVariantSite()">Variant Site</button>
-                    <button class="btn-danger" onclick="showActiveSites()">Active Sites</button>
-                    <button class="btn-secondary" onclick="toggleAllHis()">All His</button>
+                    <button class="btn-secondary" onclick="showOverview()">🔍 Overview</button>
+                    <button class="btn-warning" onclick="showVariantSite()">🎯 Variant Site</button>
+                    <button class="btn-danger" onclick="showActiveSites()">⚡ Active Sites</button>
+                    <button class="btn-secondary" onclick="toggleAllHis()">H All His</button>
+                </div>
+
+                <div class="controls" style="margin-top: 8px;">
+                    <button class="btn-secondary" id="toggle-pathogenic-btn" onclick="togglePathogenicVariants()">
+                        ✓ Pathogenic Variants
+                    </button>
+                    <button class="btn-secondary" id="toggle-ligands-btn" onclick="toggleLigands()">
+                        ✓ Ligands/RNA
+                    </button>
+                </div>
+
+                <div class="controls" style="margin-top: 8px;">
+                    <button class="btn-secondary" onclick="setProteinStyle('cartoon')">Cartoon</button>
+                    <button class="btn-secondary" onclick="setProteinStyle('surface')">Surface</button>
+                    <button class="btn-secondary" onclick="setProteinStyle('ribbon')">Ribbon</button>
                 </div>
                 
                 <div class="slider-container">
@@ -452,7 +468,7 @@
                 
                 <div class="legend">
                     <div class="legend-item">
-                        <div class="legend-color" style="background: #ff6b6b;"></div>
+                        <div class="legend-color" style="background: #ff3b3b;"></div>
                         <span>Variant site</span>
                     </div>
                     <div class="legend-item">
@@ -472,7 +488,7 @@
                         <span>Flanking residues</span>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-color" style="background: #f85149;"></div>
+                        <div class="legend-color" style="background: #e066ff;"></div>
                         <span>Pathogenic variant</span>
                     </div>
                 </div>
@@ -513,6 +529,9 @@
         let analysisRadius = 12;
         let allHisShown = false;
         let isLoadingStructure = false; // Prevent double-clicks
+        let showPathogenicVariants = true; // Toggle for pathogenic variants
+        let proteinStyle = 'cartoon'; // 'cartoon', 'stick', 'surface'
+        let showLigands = true; // Toggle for ligands/nucleic acids
 
         // Simple cache for API responses
         const apiCache = new Map();
@@ -1192,16 +1211,39 @@
             viewer.removeAllModels();
             viewer.removeAllLabels();
             viewer.removeAllShapes();
-            
+
             viewer.addModel(pdbData, 'pdb');
-            
-            // Default: cartoon by chain (green shades)
-            viewer.setStyle({}, {cartoon: {color: '#2d6a4f'}});
-            
+
+            // Apply protein style based on user selection
+            const styleConfig = {};
+            if (proteinStyle === 'cartoon') {
+                styleConfig.cartoon = {color: '#2d6a4f'};
+            } else if (proteinStyle === 'surface') {
+                styleConfig.surface = {color: '#2d6a4f', opacity: 0.7};
+            } else if (proteinStyle === 'ribbon') {
+                styleConfig.ribbon = {color: '#2d6a4f'};
+            }
+
+            // Apply style to protein (excluding ligands/nucleic acids if toggled off)
+            if (showLigands) {
+                viewer.setStyle({}, styleConfig);
+            } else {
+                // Only show protein backbone
+                viewer.setStyle({resn: ['ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE','LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL']}, styleConfig);
+            }
+
+            // Show ligands and nucleic acids as sticks if enabled
+            if (showLigands) {
+                // DNA/RNA shown as orange sticks
+                viewer.setStyle({resn: ['A','C','G','T','U','DA','DC','DG','DT']}, {stick: {colorscheme: 'default'}});
+                // Other heteroatoms (ligands) shown as sticks
+                viewer.setStyle({hetflag: true, resn: ['!ALA','!ARG','!ASN','!ASP','!CYS','!GLN','!GLU','!GLY','!HIS','!ILE','!LEU','!LYS','!MET','!PHE','!PRO','!SER','!THR','!TRP','!TYR','!VAL','!HOH']}, {stick: {colorscheme: 'default'}});
+            }
+
             // Find active sites from annotations
             const activeSiteResidues = new Set();
             const bindingSiteResidues = new Set();
-            
+
             proteinAnnotations.forEach(ann => {
                 if (ann.type === 'Active site' && ann.start) {
                     for (let i = ann.start; i <= (ann.end || ann.start); i++) {
@@ -1214,7 +1256,7 @@
                     }
                 }
             });
-            
+
             // Highlight active sites (blue)
             activeSiteResidues.forEach(resi => {
                 viewer.setStyle({resi: resi}, {stick: {color: '#58a6ff', radius: 0.25}});
@@ -1225,31 +1267,33 @@
                     fontSize: 10
                 });
             });
-            
+
             // Highlight binding sites (cyan)
             bindingSiteResidues.forEach(resi => {
                 if (!activeSiteResidues.has(resi)) {
                     viewer.setStyle({resi: resi}, {stick: {color: '#7dd3fc', radius: 0.2}});
                 }
             });
-            
-            // Highlight pathogenic ClinVar variants (small red)
-            clinvarVariants.forEach(v => {
-                if (!activeSiteResidues.has(v.position) && v.position !== currentResidue) {
-                    viewer.setStyle({resi: v.position}, {stick: {color: '#f85149', radius: 0.15}});
-                }
-            });
-            
-            // Highlight variant of interest (red, prominent)
+
+            // Highlight pathogenic ClinVar variants (MAGENTA - distinct from variant site)
+            if (showPathogenicVariants) {
+                clinvarVariants.forEach(v => {
+                    if (!activeSiteResidues.has(v.position) && v.position !== currentResidue) {
+                        viewer.setStyle({resi: v.position}, {stick: {color: '#e066ff', radius: 0.15}});
+                    }
+                });
+            }
+
+            // Highlight variant of interest (BRIGHT RED, prominent)
             if (currentResidue) {
-                viewer.setStyle({resi: currentResidue}, {stick: {color: '#ff6b6b', radius: 0.35}});
+                viewer.setStyle({resi: currentResidue}, {stick: {color: '#ff3b3b', radius: 0.35}});
                 viewer.addLabel(`${currentResidue}`, {
                     position: {resi: currentResidue},
-                    backgroundColor: '#ff6b6b',
+                    backgroundColor: '#ff3b3b',
                     fontColor: 'white',
                     fontSize: 14
                 });
-                
+
                 // Flanking residues (orange)
                 [currentResidue - 1, currentResidue + 1].forEach(r => {
                     if (!activeSiteResidues.has(r)) {
@@ -1257,7 +1301,7 @@
                     }
                 });
             }
-            
+
             viewer.zoomTo();
             viewer.render();
         }
@@ -1505,7 +1549,46 @@
                 updatePatientVariantsDisplay();
             }
         }
-        
+
+        // ============================================
+        // NEW TOGGLE FUNCTIONS
+        // ============================================
+        function togglePathogenicVariants() {
+            showPathogenicVariants = !showPathogenicVariants;
+            const btn = document.getElementById('toggle-pathogenic-btn');
+            if (showPathogenicVariants) {
+                btn.textContent = '✓ Pathogenic Variants';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-secondary');
+            } else {
+                btn.textContent = '✗ Pathogenic Variants';
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-warning');
+            }
+            displayStructure();
+        }
+
+        function toggleLigands() {
+            showLigands = !showLigands;
+            const btn = document.getElementById('toggle-ligands-btn');
+            if (showLigands) {
+                btn.textContent = '✓ Ligands/RNA';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-secondary');
+            } else {
+                btn.textContent = '✗ Ligands/RNA';
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-warning');
+            }
+            displayStructure();
+        }
+
+        function setProteinStyle(style) {
+            proteinStyle = style;
+            console.log(`Protein style changed to: ${style}`);
+            displayStructure();
+        }
+
         // ============================================
         // EXAMPLES
         // ============================================

@@ -36,11 +36,38 @@ A browser-based tool for analyzing genetic variants in their structural context.
 
 ### What You'll See
 
-- **3D Structure** with variant highlighted in red
+- **3D Structure** with variant highlighted in bright red
 - **Neighbor Table**: All residues within adjustable radius, sorted by distance
 - **Annotations Tab**: UniProt functional annotations
-- **ClinVar Tab**: Known pathogenic variants nearby
+- **ClinVar Tab**: Known pathogenic variants nearby (shown in magenta)
 - **Key Finding**: Automated analysis of significant features
+
+### View Controls
+
+The tool includes powerful visualization controls:
+
+**Quick Views:**
+- 🔍 **Overview** - Full protein view
+- 🎯 **Variant Site** - Zoom to your variant of interest
+- ⚡ **Active Sites** - Zoom to annotated catalytic residues
+- **H All His** - Highlight all histidines in the structure
+
+**Toggle Features:**
+- ✓/✗ **Pathogenic Variants** - Show/hide ClinVar pathogenic variants (magenta)
+- ✓/✗ **Ligands/RNA** - Show/hide bound molecules and nucleic acids
+
+**Protein Style:**
+- **Cartoon** - Traditional ribbon representation (default)
+- **Surface** - Molecular surface (70% transparent)
+- **Ribbon** - Smooth ribbon backbone
+
+**Color Scheme:**
+- **Bright Red** (#ff3b3b) - Your variant of interest
+- **Magenta** (#e066ff) - Pathogenic ClinVar variants
+- **Blue** (#58a6ff) - Active site residues
+- **Cyan** (#7dd3fc) - Binding site residues
+- **Gold** (#ffd700) - Positively charged residues
+- **Orange** (#ff9f43) - Flanking residues
 
 ## Example Queries
 
@@ -152,7 +179,14 @@ https://github.com/dpique/variant-structure-analyzer
 
 MIT License - free for academic and clinical use.
 
-## Recent Improvements (v1.1)
+## Recent Improvements (v1.2)
+
+### New Visualization Features ✨
+- **Toggle Pathogenic Variants** - Show/hide ClinVar pathogenic variants independently
+- **Toggle Ligands/RNA** - Show/hide bound molecules and nucleic acids as sticks
+- **Protein Style Options** - Switch between Cartoon, Surface, and Ribbon representations
+- **Improved Color Scheme** - Pathogenic variants now in magenta (#e066ff) to clearly distinguish from variant of interest (bright red #ff3b3b)
+- **Interactive View Controls** - Quick buttons for Overview, Variant Site, Active Sites, and All Histidines
 
 ### Gene/Protein Handling
 - **Fixed**: Gene symbols now correctly map to canonical proteins (e.g., `BRCA1` → `P38398` instead of wrong TrEMBL entries)
