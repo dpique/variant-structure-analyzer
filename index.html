@@ -171,10 +171,10 @@
         .btn-danger:hover:not(:disabled) { background: #ef4444; }
         .btn-overview { background: #4b5563; color: #e5e7eb; }
         .btn-overview:hover:not(:disabled) { background: #6b7280; }
-        .btn-variant-site { background: #d97706; color: white; }
-        .btn-variant-site:hover:not(:disabled) { background: #f59e0b; }
-        .btn-active-site { background: #dc2626; color: white; }
-        .btn-active-site:hover:not(:disabled) { background: #ef4444; }
+        .btn-variant-site { background: #ff3b3b; color: white; }
+        .btn-variant-site:hover:not(:disabled) { background: #ff5252; }
+        .btn-active-site { background: #58a6ff; color: white; }
+        .btn-active-site:hover:not(:disabled) { background: #79c0ff; }
         .btn-load {
             width: 100%;
             padding: 12px;
@@ -1220,27 +1220,22 @@
 
             viewer.addModel(pdbData, 'pdb');
 
-            // Apply protein style based on user selection
+            // Apply base protein style to ALL protein atoms
             const styleConfig = {};
             if (proteinStyle === 'cartoon') {
                 styleConfig.cartoon = {color: '#2d6a4f'};
             } else if (proteinStyle === 'surface') {
-                styleConfig.surface = {color: '#2d6a4f', opacity: 0.7};
+                styleConfig.surface = {color: '#2d6a4f', opacity: 0.85};
             } else if (proteinStyle === 'ribbon') {
-                styleConfig.ribbon = {color: '#2d6a4f'};
+                styleConfig.cartoon = {color: '#2d6a4f', style: 'trace', thickness: 0.4};
             }
 
-            // Apply style to protein (excluding ligands/nucleic acids if toggled off)
-            if (showLigands) {
-                viewer.setStyle({}, styleConfig);
-            } else {
-                // Only show protein backbone
-                viewer.setStyle({resn: ['ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE','LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL']}, styleConfig);
-            }
+            // Set base style for protein
+            viewer.setStyle({model: 0}, styleConfig);
 
             // Show ligands and nucleic acids as sticks if enabled
             if (showLigands) {
-                // DNA/RNA shown as orange sticks
+                // DNA/RNA shown as colored sticks
                 viewer.setStyle({resn: ['A','C','G','T','U','DA','DC','DG','DT']}, {stick: {colorscheme: 'default'}});
                 // Other heteroatoms (ligands) shown as sticks
                 viewer.setStyle({hetflag: true, resn: ['!ALA','!ARG','!ASN','!ASP','!CYS','!GLN','!GLU','!GLY','!HIS','!ILE','!LEU','!LYS','!MET','!PHE','!PRO','!SER','!THR','!TRP','!TYR','!VAL','!HOH']}, {stick: {colorscheme: 'default'}});
@@ -1263,9 +1258,10 @@
                 }
             });
 
-            // Highlight active sites (blue)
+            // ADD stick highlights on top of cartoon (not replacing it)
+            // Active sites (blue) - ADD style to keep cartoon
             activeSiteResidues.forEach(resi => {
-                viewer.setStyle({resi: resi}, {stick: {color: '#58a6ff', radius: 0.25}});
+                viewer.addStyle({resi: resi}, {stick: {color: '#58a6ff', radius: 0.25}});
                 viewer.addLabel(`${resi}`, {
                     position: {resi: resi},
                     backgroundColor: '#58a6ff',
@@ -1274,25 +1270,25 @@
                 });
             });
 
-            // Highlight binding sites (cyan)
+            // Binding sites (cyan) - ADD style to keep cartoon
             bindingSiteResidues.forEach(resi => {
                 if (!activeSiteResidues.has(resi)) {
-                    viewer.setStyle({resi: resi}, {stick: {color: '#7dd3fc', radius: 0.2}});
+                    viewer.addStyle({resi: resi}, {stick: {color: '#7dd3fc', radius: 0.2}});
                 }
             });
 
-            // Highlight pathogenic ClinVar variants (MAGENTA - distinct from variant site)
+            // Pathogenic ClinVar variants (MAGENTA) - ADD style to keep cartoon
             if (showPathogenicVariants) {
                 clinvarVariants.forEach(v => {
                     if (!activeSiteResidues.has(v.position) && v.position !== currentResidue) {
-                        viewer.setStyle({resi: v.position}, {stick: {color: '#e066ff', radius: 0.15}});
+                        viewer.addStyle({resi: v.position}, {stick: {color: '#e066ff', radius: 0.15}});
                     }
                 });
             }
 
-            // Highlight variant of interest (BRIGHT RED, prominent)
+            // Variant of interest (BRIGHT RED, prominent) - ADD style to keep cartoon
             if (currentResidue) {
-                viewer.setStyle({resi: currentResidue}, {stick: {color: '#ff3b3b', radius: 0.35}});
+                viewer.addStyle({resi: currentResidue}, {stick: {color: '#ff3b3b', radius: 0.35}});
                 viewer.addLabel(`${currentResidue}`, {
                     position: {resi: currentResidue},
                     backgroundColor: '#ff3b3b',
@@ -1300,10 +1296,10 @@
                     fontSize: 14
                 });
 
-                // Flanking residues (orange)
+                // Flanking residues (orange) - ADD style to keep cartoon
                 [currentResidue - 1, currentResidue + 1].forEach(r => {
                     if (!activeSiteResidues.has(r)) {
-                        viewer.setStyle({resi: r}, {stick: {color: '#ff9f43', radius: 0.2}});
+                        viewer.addStyle({resi: r}, {stick: {color: '#ff9f43', radius: 0.2}});
                     }
                 });
             }
