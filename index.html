@@ -679,25 +679,32 @@
                 } else {
                     // Gene symbol search - PREFER REVIEWED ENTRIES (Swiss-Prot)
                     setStatus(`Step 1/4: Looking up gene ${input} in UniProt...`, 'loading');
+
+                    // Properly encode the query - use encodeURIComponent for the entire query
+                    const reviewedQuery = `(gene:${input}) AND (organism_id:9606) AND (reviewed:true)`;
                     const uniprotSearch = await cachedFetch(
-                        `https://rest.uniprot.org/uniprotkb/search?query=gene:${input}+AND+organism_id:9606+AND+reviewed:true&fields=accession,gene_names,protein_name&size=1&sort=score+desc`
+                        `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(reviewedQuery)}&fields=accession,gene_names,protein_name&size=5&format=json`
                     );
 
                     if (!uniprotSearch.ok) {
-                        throw new Error(`UniProt search failed (HTTP ${uniprotSearch.status}). The API may be temporarily unavailable.`);
+                        console.warn(`UniProt reviewed search failed with status ${uniprotSearch.status}, trying unreviewed...`);
                     }
 
-                    const searchData = await uniprotSearch.json();
+                    let searchData = null;
+                    if (uniprotSearch.ok) {
+                        searchData = await uniprotSearch.json();
+                    }
 
-                    if (!searchData.results || searchData.results.length === 0) {
+                    if (!searchData || !searchData.results || searchData.results.length === 0) {
                         // Try again without reviewed filter (TrEMBL entries)
                         console.log('No reviewed entries found, searching all entries...');
+                        const allQuery = `(gene:${input}) AND (organism_id:9606)`;
                         const uniprotSearchAll = await cachedFetch(
-                            `https://rest.uniprot.org/uniprotkb/search?query=gene:${input}+AND+organism_id:9606&fields=accession,gene_names,protein_name&size=1&sort=score+desc`
+                            `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(allQuery)}&fields=accession,gene_names,protein_name&size=5&format=json`
                         );
 
                         if (!uniprotSearchAll.ok) {
-                            throw new Error(`Gene "${input}" not found in UniProt`);
+                            throw new Error(`Gene "${input}" not found in UniProt (HTTP ${uniprotSearchAll.status})`);
                         }
 
                         const searchDataAll = await uniprotSearchAll.json();
@@ -705,8 +712,10 @@
                             throw new Error(`Gene "${input}" not found in UniProt (human)`);
                         }
                         uniprotData = searchDataAll.results[0];
+                        console.warn(`Using unreviewed (TrEMBL) entry: ${uniprotData.primaryAccession}`);
                     } else {
                         uniprotData = searchData.results[0];
+                        console.log(`Using reviewed (Swiss-Prot) entry: ${uniprotData.primaryAccession}`);
                     }
 
                     currentUniProt = uniprotData.primaryAccession;
@@ -722,59 +731,101 @@
 
                 let pdbIds = [];
                 try {
-                    // Try the simpler text-based search API first
-                    const textSearchUrl = `https://search.rcsb.org/rcsbsearch/v2/query?json=${encodeURIComponent(JSON.stringify({
-                        query: {
-                            type: "terminal",
-                            service: "text",
-                            parameters: {
-                                attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
-                                operator: "exact_match",
-                                value: currentUniProt
+                    // Method 1: Try GraphQL API (most reliable for UniProt lookups)
+                    console.log(`Searching PDB for UniProt ${currentUniProt}...`);
+                    const graphqlQuery = `{
+                        polymer_entity_instances(where: {
+                            rcsb_polymer_entity_instance_container_identifiers: {
+                                reference_sequence_identifiers: {
+                                    database_accession: {_eq: "${currentUniProt}"}
+                                    database_name: {_eq: "UniProt"}
+                                }
                             }
-                        },
-                        return_type: "entry",
-                        request_options: {
-                            pager: {start: 0, rows: 100}
+                        }) {
+                            rcsb_id
+                            rcsb_polymer_entity_instance_container_identifiers {
+                                entry_id
+                            }
                         }
-                    }))}`;
+                    }`;
 
-                    const pdbSearch = await fetchWithRetry(textSearchUrl, {}, 2);
+                    const graphqlSearch = await fetchWithRetry('https://data.rcsb.org/graphql', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({query: graphqlQuery})
+                    }, 2);
 
-                    if (pdbSearch.ok) {
-                        const pdbData = await pdbSearch.json();
-                        pdbIds = pdbData.result_set?.map(r => r.identifier) || [];
-                        console.log(`Found ${pdbIds.length} PDB structures for ${currentUniProt}`);
-                    } else {
-                        console.warn(`PDB search returned status ${pdbSearch.status}, trying alternative method...`);
-
-                        // Fallback: Try direct REST API search
-                        const restSearchUrl = `https://data.rcsb.org/rest/v1/core/uniprot/${currentUniProt}`;
-                        const restSearch = await fetchWithRetry(restSearchUrl, {}, 2);
-
-                        if (restSearch.ok) {
-                            const restData = await restSearch.json();
-                            if (restData.rcsb_id) {
-                                pdbIds = [restData.rcsb_id];
-                            }
-                        } else {
-                            console.warn(`PDB REST API also failed. Continuing with AlphaFold only.`);
-                            setStatus(`Note: PDB search unavailable, showing AlphaFold prediction only`, 'loading');
+                    if (graphqlSearch.ok) {
+                        const graphqlData = await graphqlSearch.json();
+                        if (graphqlData.data?.polymer_entity_instances) {
+                            // Extract unique entry IDs
+                            const entrySet = new Set();
+                            graphqlData.data.polymer_entity_instances.forEach(inst => {
+                                const entryId = inst.rcsb_polymer_entity_instance_container_identifiers?.entry_id;
+                                if (entryId) entrySet.add(entryId);
+                            });
+                            pdbIds = Array.from(entrySet);
+                            console.log(`GraphQL found ${pdbIds.length} PDB entries: ${pdbIds.slice(0, 5).join(', ')}${pdbIds.length > 5 ? '...' : ''}`);
                         }
                     }
+
+                    // Method 2: If GraphQL fails, try POST-based search
+                    if (pdbIds.length === 0) {
+                        console.log('GraphQL search failed or returned no results, trying POST search...');
+                        const postQuery = {
+                            query: {
+                                type: "terminal",
+                                service: "text",
+                                parameters: {
+                                    attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
+                                    operator: "exact_match",
+                                    value: currentUniProt
+                                }
+                            },
+                            return_type: "entry"
+                        };
+
+                        const postSearch = await fetchWithRetry('https://search.rcsb.org/rcsbsearch/v2/query', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(postQuery)
+                        }, 2);
+
+                        if (postSearch.ok) {
+                            const postData = await postSearch.json();
+                            pdbIds = postData.result_set?.map(r => r.identifier) || [];
+                            console.log(`POST search found ${pdbIds.length} PDB entries`);
+                        } else {
+                            console.warn(`POST search failed with status ${postSearch.status}`);
+                        }
+                    }
+
+                    if (pdbIds.length === 0) {
+                        console.warn(`No PDB structures found for ${currentUniProt}. This protein may not have experimental structures.`);
+                        setStatus(`No experimental PDB structures found (will show AlphaFold if available)`, 'loading');
+                    } else {
+                        console.log(`Total PDB structures found: ${pdbIds.length}`);
+                    }
+
                 } catch (pdbError) {
-                    console.warn('PDB search error:', pdbError);
+                    console.error('PDB search error:', pdbError);
                     setStatus(`Note: PDB search failed (${pdbError.message})`, 'loading');
                     // Continue without PDB structures
                 }
                 
                 // 3. Get details for each PDB entry
-                setStatus(`Step 3/4: Loading structure details (${pdbIds.length} found)...`, 'loading');
+                if (pdbIds.length > 0) {
+                    setStatus(`Step 3/4: Loading structure details (${pdbIds.length} found)...`, 'loading');
+                } else {
+                    setStatus(`Step 3/4: No PDB structures to load`, 'loading');
+                }
+
+                let loadedCount = 0;
                 for (const pdbId of pdbIds.slice(0, 15)) { // Limit to 15
                     try {
                         const detailRes = await cachedFetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`);
                         if (!detailRes.ok) {
-                            console.warn(`Failed to fetch details for ${pdbId}, skipping`);
+                            console.warn(`Failed to fetch details for ${pdbId} (HTTP ${detailRes.status}), skipping`);
                             continue;
                         }
                         const detail = await detailRes.json();
@@ -802,15 +853,23 @@
                         if (titleLower.includes('mutant') || titleLower.includes('variant')) {
                             struct.tags.push({text: 'Mutant', class: 'tag-mutant'});
                         }
-                        if (titleLower.includes('complex') || titleLower.includes('dna') || 
+                        if (titleLower.includes('complex') || titleLower.includes('dna') ||
                             titleLower.includes('rna') || titleLower.includes('trna')) {
                             struct.tags.push({text: 'Complex', class: 'tag-complex'});
                         }
-                        
+
                         availableStructures.push(struct);
+                        loadedCount++;
+                        console.log(`Loaded PDB structure ${loadedCount}/${pdbIds.length}: ${pdbId} - ${struct.title.substring(0, 50)}...`);
                     } catch (e) {
                         console.warn('Failed to fetch details for', pdbId, e);
                     }
+                }
+
+                if (loadedCount > 0) {
+                    console.log(`Successfully loaded ${loadedCount} PDB structures out of ${pdbIds.length} found`);
+                } else if (pdbIds.length > 0) {
+                    console.warn(`Found ${pdbIds.length} PDB IDs but failed to load details for all of them`);
                 }
 
                 // 4. Check AlphaFold availability before adding
@@ -874,18 +933,24 @@
         function displayStructureList() {
             const container = document.getElementById('structure-list');
             let html = '';
-            
+
+            console.log(`Displaying ${availableStructures.length} structures in UI`);
+            console.log('Structure breakdown:', {
+                alphafold: availableStructures.filter(s => s.type === 'predicted').length,
+                experimental: availableStructures.filter(s => s.type === 'experimental').length
+            });
+
             availableStructures.forEach((struct, idx) => {
                 const isAF = struct.type === 'predicted';
                 const itemClass = isAF ? 'alphafold' : 'experimental';
-                
+
                 let metaHtml = '';
                 if (struct.method) metaHtml += `<span>${struct.method}</span>`;
                 if (struct.resolution) metaHtml += `<span>${struct.resolution.toFixed(1)}Å</span>`;
                 if (struct.date) metaHtml += `<span>${struct.date}</span>`;
-                
+
                 let tagsHtml = struct.tags.map(t => `<span class="tag ${t.class}">${t.text}</span>`).join('');
-                
+
                 html += `
                     <div class="structure-item ${itemClass}" data-idx="${idx}" onclick="selectStructure(${idx})">
                         <div class="structure-id">${struct.id}</div>
@@ -894,9 +959,10 @@
                     </div>
                 `;
             });
-            
+
             container.innerHTML = html;
-            
+            console.log(`Rendered ${availableStructures.length} structure items to DOM`);
+
             // Auto-select first
             if (availableStructures.length > 0) {
                 selectStructure(0);
@@ -905,7 +971,8 @@
         
         function selectStructure(idx) {
             selectedStructure = availableStructures[idx];
-            
+            console.log(`Selected structure ${idx}: ${selectedStructure.id} (${selectedStructure.type})`);
+
             // Update UI
             document.querySelectorAll('.structure-item').forEach(el => el.classList.remove('selected'));
             document.querySelector(`.structure-item[data-idx="${idx}"]`)?.classList.add('selected');
