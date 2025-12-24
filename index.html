@@ -165,10 +165,16 @@
         .btn-primary:hover:not(:disabled) { background: #2ea043; }
         .btn-secondary { background: #30363d; color: #c9d1d9; }
         .btn-secondary:hover:not(:disabled) { background: #484f58; }
-        .btn-warning { background: #9e6a03; color: white; }
-        .btn-warning:hover:not(:disabled) { background: #bb8009; }
-        .btn-danger { background: #da3633; color: white; }
-        .btn-danger:hover:not(:disabled) { background: #f85149; }
+        .btn-warning { background: #d97706; color: white; }
+        .btn-warning:hover:not(:disabled) { background: #f59e0b; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-danger:hover:not(:disabled) { background: #ef4444; }
+        .btn-overview { background: #4b5563; color: #e5e7eb; }
+        .btn-overview:hover:not(:disabled) { background: #6b7280; }
+        .btn-variant-site { background: #d97706; color: white; }
+        .btn-variant-site:hover:not(:disabled) { background: #f59e0b; }
+        .btn-active-site { background: #dc2626; color: white; }
+        .btn-active-site:hover:not(:disabled) { background: #ef4444; }
         .btn-load {
             width: 100%;
             padding: 12px;
@@ -428,9 +434,9 @@
             <div id="analysis-panel" class="hidden">
                 <h2>View Controls</h2>
                 <div class="controls">
-                    <button class="btn-secondary" onclick="showOverview()">🔍 Overview</button>
-                    <button class="btn-warning" onclick="showVariantSite()">🎯 Variant Site</button>
-                    <button class="btn-danger" onclick="showActiveSites()">⚡ Active Sites</button>
+                    <button class="btn-overview" onclick="showOverview()">🔍 Overview</button>
+                    <button class="btn-variant-site" onclick="showVariantSite()">🎯 Variant Site</button>
+                    <button class="btn-active-site" onclick="showActiveSites()">⚡ Active Sites</button>
                     <button class="btn-secondary" onclick="toggleAllHis()">H All His</button>
                 </div>
 
