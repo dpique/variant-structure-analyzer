@@ -733,6 +733,8 @@
                 try {
                     console.log(`Searching PDB for UniProt ${currentUniProt}...`);
 
+                    // Correct query format per RCSB PDB Search API v2 schema
+                    // Docs: https://search.rcsb.org/redoc/index.html
                     const postQuery = {
                         query: {
                             type: "terminal",
@@ -745,7 +747,7 @@
                         },
                         return_type: "entry",
                         request_options: {
-                            pager: {
+                            paginate: {
                                 start: 0,
                                 rows: 100
                             }
