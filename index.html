@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Variant Structure Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.1/3Dmol-min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            height: 100vh;
+        }
+        #viewer {
+            width: 100%;
+            height: 100%;
+            background: #0d1117;
+        }
+        .sidebar {
+            background: rgba(22, 33, 62, 0.95);
+            padding: 20px;
+            overflow-y: auto;
+            border-left: 1px solid #30363d;
+        }
+        h1 { 
+            font-size: 1.3em; 
+            margin-bottom: 5px;
+            color: #58a6ff;
+        }
+        .subtitle {
+            font-size: 0.8em;
+            color: #8b949e;
+            margin-bottom: 15px;
+        }
+        h2 {
+            font-size: 1em;
+            margin: 18px 0 10px 0;
+            color: #f0883e;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 5px;
+        }
+        
+        /* Input Section */
+        .input-section {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .input-group {
+            margin-bottom: 12px;
+        }
+        .input-group label {
+            display: block;
+            font-size: 0.85em;
+            color: #8b949e;
+            margin-bottom: 5px;
+        }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            background: #161b22;
+            color: #e0e0e0;
+            font-size: 0.9em;
+        }
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+        .input-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 10px;
+        }
+        
+        /* Structure selector */
+        .structure-list {
+            max-height: 180px;
+            overflow-y: auto;
+            background: #161b22;
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+        .structure-item {
+            padding: 10px 12px;
+            border-bottom: 1px solid #21262d;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .structure-item:hover {
+            background: #21262d;
+        }
+        .structure-item.selected {
+            background: #238636;
+            border-left: 3px solid #7ee787;
+        }
+        .structure-item.alphafold {
+            border-left: 3px solid #a78bfa;
+        }
+        .structure-item.experimental {
+            border-left: 3px solid #58a6ff;
+        }
+        .structure-id {
+            font-weight: bold;
+            color: #58a6ff;
+            font-size: 0.95em;
+        }
+        .structure-item.alphafold .structure-id {
+            color: #a78bfa;
+        }
+        .structure-title {
+            font-size: 0.8em;
+            color: #c9d1d9;
+            margin: 3px 0;
+            line-height: 1.3;
+        }
+        .structure-meta {
+            font-size: 0.75em;
+            color: #8b949e;
+        }
+        .structure-meta span {
+            margin-right: 10px;
+        }
+        .tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7em;
+            margin-right: 4px;
+        }
+        .tag-substrate { background: #238636; color: white; }
+        .tag-apo { background: #6e7681; color: white; }
+        .tag-mutant { background: #9e6a03; color: white; }
+        .tag-complex { background: #1f6feb; color: white; }
+        
+        /* Buttons */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-primary { background: #238636; color: white; }
+        .btn-primary:hover:not(:disabled) { background: #2ea043; }
+        .btn-secondary { background: #30363d; color: #c9d1d9; }
+        .btn-secondary:hover:not(:disabled) { background: #484f58; }
+        .btn-warning { background: #9e6a03; color: white; }
+        .btn-warning:hover:not(:disabled) { background: #bb8009; }
+        .btn-danger { background: #da3633; color: white; }
+        .btn-danger:hover:not(:disabled) { background: #f85149; }
+        .btn-load {
+            width: 100%;
+            padding: 12px;
+            font-size: 1em;
+            margin-top: 10px;
+        }
+        .btn-search {
+            padding: 10px 16px;
+        }
+        
+        /* Status */
+        .status {
+            background: #0d1117;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        .status.success { color: #7ee787; }
+        .status.error { color: #f85149; }
+        .status.loading { color: #58a6ff; }
+        
+        /* Results table */
+        #analysis-results {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.75em;
+            max-height: 250px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+        .residue-row {
+            display: grid;
+            grid-template-columns: 70px 50px 60px auto;
+            padding: 5px 0;
+            border-bottom: 1px solid #21262d;
+            cursor: pointer;
+        }
+        .residue-row:hover { background: #161b22; }
+        .residue-row.his { background: rgba(255, 107, 107, 0.2); }
+        .residue-row.catalytic { background: rgba(88, 166, 255, 0.2); }
+        .residue-row.binding { background: rgba(125, 211, 252, 0.15); }
+        .residue-row.charged-pos { background: rgba(255, 215, 0, 0.15); }
+        .residue-row.variant-site { background: rgba(255, 107, 107, 0.25); }
+        .residue-row.pathogenic { background: rgba(248, 81, 73, 0.2); }
+        .header-row {
+            font-weight: bold;
+            color: #58a6ff;
+            border-bottom: 2px solid #30363d;
+            cursor: default;
+        }
+        .header-row:hover { background: transparent; }
+        
+        /* Patient variants section */
+        .patient-variants {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.85em;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        .variant-item {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            background: #161b22;
+            cursor: pointer;
+        }
+        .variant-item:hover { background: #21262d; }
+        .variant-item.pathogenic {
+            border-left: 3px solid #f85149;
+        }
+        .variant-item.likely-pathogenic {
+            border-left: 3px solid #ff7b72;
+        }
+        .variant-item.nearby {
+            background: rgba(248, 81, 73, 0.15);
+        }
+        .variant-position {
+            font-weight: bold;
+            color: #f85149;
+        }
+        .variant-sig {
+            font-size: 0.85em;
+            color: #8b949e;
+        }
+        .variant-distance {
+            float: right;
+            color: #58a6ff;
+            font-size: 0.85em;
+        }
+        
+        /* Key finding */
+        .key-finding {
+            background: linear-gradient(135deg, #1f6feb22, #23863622);
+            border-left: 4px solid #58a6ff;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .key-finding h3 {
+            color: #58a6ff;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+        .key-finding-text {
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+        
+        /* Legend */
+        .legend {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin: 12px 0;
+            font-size: 0.8em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-color {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+        }
+        
+        /* Slider */
+        .slider-container {
+            margin: 12px 0;
+        }
+        .slider-container label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.85em;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        
+        /* Protein info box */
+        .protein-info {
+            background: #161b22;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 0.85em;
+            border-left: 3px solid #58a6ff;
+        }
+        .protein-info strong {
+            color: #58a6ff;
+        }
+        .protein-info .gene-name {
+            font-size: 1.1em;
+            color: #7ee787;
+        }
+        
+        /* Note box */
+        .note-box {
+            background: rgba(158, 106, 3, 0.15);
+            border-left: 3px solid #9e6a03;
+            padding: 10px 12px;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.8em;
+            margin: 15px 0;
+            color: #e3b341;
+        }
+        
+        /* Examples */
+        .examples {
+            margin-top: 10px;
+            font-size: 0.8em;
+            color: #8b949e;
+        }
+        .example-link {
+            color: #58a6ff;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .example-link:hover { color: #79c0ff; }
+        
+        /* Hide/show panels */
+        .hidden { display: none !important; }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #161b22; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="viewer"></div>
+        <div class="sidebar">
+            <h1>🧬 Variant Structure Analyzer</h1>
+            <p class="subtitle">Structural context for clinical variant interpretation</p>
+            
+            <!-- Step 1: Gene Input -->
+            <div class="input-section" id="step1">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Gene Symbol</label>
+                        <input type="text" id="gene-input" placeholder="e.g.,BRCA1, TP53" 
+                               onkeypress="if(event.key==='Enter') searchStructures()">
+                    </div>
+                    <div class="input-group">
+                        <label>&nbsp;</label>
+                        <button class="btn-primary btn-search" onclick="searchStructures()" id="search-btn">
+                            🔍 Find
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="examples">
+                    Try: 
+                    <span class="example-link" onclick="loadExample('BRCA1', 1699)">BRCA1 R1699</span> · 
+                    <span class="example-link" onclick="loadExample('TP53', 248)">TP53 R248</span>
+                </div>
+            </div>
+            
+            <!-- Step 2: Structure Selection -->
+            <div id="structure-panel" class="hidden">
+                <h2>Available Structures</h2>
+                <div class="structure-list" id="structure-list">
+                    <!-- Populated dynamically -->
+                </div>
+                
+                <div class="input-group" style="margin-top: 12px;">
+                    <label>Residue of Interest</label>
+                    <input type="number" id="residue-input" placeholder="e.g., 124" min="1">
+                </div>
+                
+                <button class="btn-primary btn-load" onclick="loadSelectedStructure()" id="load-btn">
+                    📊 Analyze Variant
+                </button>
+            </div>
+            
+            <div class="status" id="status">Enter a gene symbol to find available structures</div>
+            
+            <!-- Protein Info -->
+            <div id="protein-info" class="protein-info hidden">
+                <span class="gene-name" id="protein-gene">-</span><br>
+                <span id="protein-name">-</span><br>
+                <span id="protein-uniprot" style="color: #8b949e; font-size: 0.9em;">-</span>
+            </div>
+            
+            <!-- Analysis Panel -->
+            <div id="analysis-panel" class="hidden">
+                <div class="controls">
+                    <button class="btn-secondary" onclick="showOverview()">Overview</button>
+                    <button class="btn-warning" onclick="showVariantSite()">Variant Site</button>
+                    <button class="btn-danger" onclick="showActiveSites()">Active Sites</button>
+                    <button class="btn-secondary" onclick="toggleAllHis()">All His</button>
+                </div>
+                
+                <div class="slider-container">
+                    <label>Analysis radius from variant: <span id="radius-value">12</span>Å</label>
+                    <input type="range" id="radius-slider" min="5" max="20" value="12" 
+                           onchange="updateRadius(this.value)">
+                </div>
+                
+                <h2>Residues Near Variant</h2>
+                <div id="analysis-results">
+                    <div class="residue-row header-row">
+                        <span>Residue</span>
+                        <span>Dist</span>
+                        <span>Type</span>
+                        <span>Notes</span>
+                    </div>
+                    <div id="residue-list">Analyzing...</div>
+                </div>
+                
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff6b6b;"></div>
+                        <span>Variant site</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #58a6ff;"></div>
+                        <span>Active site</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #7dd3fc;"></div>
+                        <span>Binding site</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ffd700;"></div>
+                        <span>Positive charge</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff9f43;"></div>
+                        <span>Flanking residues</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #f85149;"></div>
+                        <span>Pathogenic variant</span>
+                    </div>
+                </div>
+                
+                <div class="key-finding">
+                    <h3>🎯 Key Finding</h3>
+                    <div class="key-finding-text" id="finding-text">Analysis results will appear here</div>
+                </div>
+                
+                <h2>Pathogenic Variants in Region</h2>
+                <div class="patient-variants" id="patient-variants">
+                    Loading ClinVar data...
+                </div>
+                
+                <div class="note-box">
+                    <strong>⚠️ Note:</strong> Structural proximity provides computational evidence (PP3) only. 
+                    This does not establish pathogenicity. Combine with population data, 
+                    segregation, and functional studies for classification.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // GLOBAL STATE
+        // ============================================
+        let viewer;
+        let pdbData;
+        let currentGene = null;
+        let currentUniProt = null;
+        let currentResidue = null;
+        let selectedStructure = null;
+        let availableStructures = [];
+        let proteinAnnotations = [];
+        let clinvarVariants = [];
+        let residueCoords = new Map();
+        let analysisRadius = 12;
+        let allHisShown = false;
+        
+        // Amino acid properties
+        const AA_PROPS = {
+            'HIS': {type: 'his', charge: '+/0', note: '⚡ Acid-base (pKa~6)', color: '#ff6b6b'},
+            'ARG': {type: 'positive', charge: '+', note: '➕ Substrate binding', color: '#ffd700'},
+            'LYS': {type: 'positive', charge: '+', note: '➕ Substrate binding', color: '#ffd700'},
+            'ASP': {type: 'catalytic', charge: '-', note: '🔵 Nucleophile/acid', color: '#58a6ff'},
+            'GLU': {type: 'catalytic', charge: '-', note: '🔵 Acid-base', color: '#58a6ff'},
+            'SER': {type: 'nucleophile', charge: '0', note: 'Nucleophile', color: '#7dd3fc'},
+            'CYS': {type: 'nucleophile', charge: '0', note: 'Nucleophile/redox', color: '#fbbf24'},
+            'TYR': {type: 'polar', charge: '0', note: 'Acid-base', color: '#a5b4c4'},
+            'THR': {type: 'polar', charge: '0', note: '', color: '#a5b4c4'},
+            'ASN': {type: 'polar', charge: '0', note: '', color: '#a5b4c4'},
+            'GLN': {type: 'polar', charge: '0', note: '', color: '#a5b4c4'},
+            'TRP': {type: 'aromatic', charge: '0', note: 'Stacking', color: '#6b7280'},
+            'PHE': {type: 'aromatic', charge: '0', note: 'Stacking', color: '#6b7280'},
+            'ALA': {type: 'hydrophobic', charge: '0', note: '', color: '#6b7280'},
+            'VAL': {type: 'hydrophobic', charge: '0', note: '', color: '#6b7280'},
+            'LEU': {type: 'hydrophobic', charge: '0', note: '', color: '#6b7280'},
+            'ILE': {type: 'hydrophobic', charge: '0', note: '', color: '#6b7280'},
+            'MET': {type: 'hydrophobic', charge: '0', note: '', color: '#6b7280'},
+            'PRO': {type: 'special', charge: '0', note: 'Helix breaker', color: '#6b7280'},
+            'GLY': {type: 'special', charge: '0', note: 'Flexibility', color: '#6b7280'}
+        };
+        
+        const AA_3TO1 = {
+            'ALA':'A','ARG':'R','ASN':'N','ASP':'D','CYS':'C','GLU':'E','GLN':'Q',
+            'GLY':'G','HIS':'H','ILE':'I','LEU':'L','LYS':'K','MET':'M','PHE':'F',
+            'PRO':'P','SER':'S','THR':'T','TRP':'W','TYR':'Y','VAL':'V'
+        };
+        
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        function initViewer() {
+            viewer = $3Dmol.createViewer('viewer', {
+                backgroundColor: '#0d1117'
+            });
+        }
+        
+        function setStatus(msg, type = '') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status ' + type;
+        }
+        
+        // ============================================
+        // STEP 1: SEARCH FOR GENE
+        // ============================================
+        async function searchStructures() {
+            const gene = document.getElementById('gene-input').value.trim().toUpperCase();
+            if (!gene) {
+                setStatus('Please enter a gene symbol', 'error');
+                return;
+            }
+            
+            document.getElementById('search-btn').disabled = true;
+            setStatus('Searching for ' + gene + '...', 'loading');
+            availableStructures = [];
+            
+            try {
+                // 1. Get UniProt ID for the gene
+                const uniprotSearch = await fetch(
+                    `https://rest.uniprot.org/uniprotkb/search?query=gene:${gene}+AND+organism_id:9606&fields=accession,gene_names,protein_name&size=1`
+                );
+                const uniprotData = await uniprotSearch.json();
+                
+                if (!uniprotData.results || uniprotData.results.length === 0) {
+                    throw new Error(`Gene "${gene}" not found in UniProt`);
+                }
+                
+                currentUniProt = uniprotData.results[0].primaryAccession;
+                currentGene = gene;
+                
+                const proteinName = uniprotData.results[0].proteinDescription?.recommendedName?.fullName?.value || 
+                                   uniprotData.results[0].proteinDescription?.submittedName?.[0]?.fullName?.value || '';
+                
+                // 2. Search PDB for structures
+                const pdbQuery = {
+                    query: {
+                        type: "group",
+                        logical_operator: "and",
+                        nodes: [
+                            {
+                                type: "terminal",
+                                service: "text",
+                                parameters: {
+                                    attribute: "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession",
+                                    operator: "exact_match",
+                                    value: currentUniProt
+                                }
+                            }
+                        ]
+                    },
+                    return_type: "entry",
+                    request_options: {
+                        results_content_type: ["experimental"],
+                        sort: [{field_name: "rcsb_accession_info.initial_release_date", direction: "desc"}],
+                        pager: {start: 0, rows: 25}
+                    }
+                };
+                
+                const pdbSearch = await fetch('https://search.rcsb.org/rcsbsearch/v2/query', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(pdbQuery)
+                });
+                
+                let pdbIds = [];
+                if (pdbSearch.ok) {
+                    const pdbData = await pdbSearch.json();
+                    pdbIds = pdbData.result_set?.map(r => r.identifier) || [];
+                }
+                
+                // 3. Get details for each PDB entry
+                for (const pdbId of pdbIds.slice(0, 15)) { // Limit to 15
+                    try {
+                        const detailRes = await fetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`);
+                        const detail = await detailRes.json();
+                        
+                        const struct = {
+                            id: pdbId,
+                            type: 'experimental',
+                            title: detail.struct?.title || 'No title',
+                            method: detail.exptl?.[0]?.method || 'Unknown',
+                            resolution: detail.rcsb_entry_info?.resolution_combined?.[0],
+                            date: detail.rcsb_accession_info?.initial_release_date?.split('T')[0],
+                            ligands: [],
+                            tags: []
+                        };
+                        
+                        // Parse title for tags
+                        const titleLower = struct.title.toLowerCase();
+                        if (titleLower.includes('apo') || titleLower.includes('unbound')) {
+                            struct.tags.push({text: 'Apo', class: 'tag-apo'});
+                        }
+                        if (titleLower.includes('substrate') || titleLower.includes('ligand') || 
+                            titleLower.includes('inhibitor') || titleLower.includes('bound')) {
+                            struct.tags.push({text: 'Substrate', class: 'tag-substrate'});
+                        }
+                        if (titleLower.includes('mutant') || titleLower.includes('variant')) {
+                            struct.tags.push({text: 'Mutant', class: 'tag-mutant'});
+                        }
+                        if (titleLower.includes('complex') || titleLower.includes('dna') || 
+                            titleLower.includes('rna') || titleLower.includes('trna')) {
+                            struct.tags.push({text: 'Complex', class: 'tag-complex'});
+                        }
+                        
+                        availableStructures.push(struct);
+                    } catch (e) {
+                        console.warn('Failed to fetch details for', pdbId);
+                    }
+                }
+                
+                // 4. Always add AlphaFold option
+                availableStructures.unshift({
+                    id: 'AlphaFold',
+                    type: 'predicted',
+                    title: `AlphaFold predicted structure for ${gene}`,
+                    method: 'AI Prediction',
+                    resolution: null,
+                    date: null,
+                    tags: [{text: 'Full length', class: 'tag-apo'}],
+                    uniprotId: currentUniProt
+                });
+                
+                // 5. Display structures
+                displayStructureList();
+                
+                // Show protein info
+                document.getElementById('protein-gene').textContent = gene;
+                document.getElementById('protein-name').textContent = proteinName;
+                document.getElementById('protein-uniprot').textContent = `UniProt: ${currentUniProt}`;
+                document.getElementById('protein-info').classList.remove('hidden');
+                
+                // Fetch annotations
+                await fetchAnnotations(currentUniProt);
+                
+                // Fetch ClinVar
+                fetchClinVar(gene);
+                
+                document.getElementById('structure-panel').classList.remove('hidden');
+                setStatus(`Found ${availableStructures.length} structures for ${gene}`, 'success');
+                
+            } catch (error) {
+                setStatus('Error: ' + error.message, 'error');
+                console.error(error);
+            }
+            
+            document.getElementById('search-btn').disabled = false;
+        }
+        
+        function displayStructureList() {
+            const container = document.getElementById('structure-list');
+            let html = '';
+            
+            availableStructures.forEach((struct, idx) => {
+                const isAF = struct.type === 'predicted';
+                const itemClass = isAF ? 'alphafold' : 'experimental';
+                
+                let metaHtml = '';
+                if (struct.method) metaHtml += `<span>${struct.method}</span>`;
+                if (struct.resolution) metaHtml += `<span>${struct.resolution.toFixed(1)}Å</span>`;
+                if (struct.date) metaHtml += `<span>${struct.date}</span>`;
+                
+                let tagsHtml = struct.tags.map(t => `<span class="tag ${t.class}">${t.text}</span>`).join('');
+                
+                html += `
+                    <div class="structure-item ${itemClass}" data-idx="${idx}" onclick="selectStructure(${idx})">
+                        <div class="structure-id">${struct.id}</div>
+                        <div class="structure-title">${tagsHtml} ${struct.title.substring(0, 80)}${struct.title.length > 80 ? '...' : ''}</div>
+                        <div class="structure-meta">${metaHtml}</div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+            
+            // Auto-select first
+            if (availableStructures.length > 0) {
+                selectStructure(0);
+            }
+        }
+        
+        function selectStructure(idx) {
+            selectedStructure = availableStructures[idx];
+            
+            // Update UI
+            document.querySelectorAll('.structure-item').forEach(el => el.classList.remove('selected'));
+            document.querySelector(`.structure-item[data-idx="${idx}"]`)?.classList.add('selected');
+        }
+        
+        // ============================================
+        // FETCH ANNOTATIONS
+        // ============================================
+        async function fetchAnnotations(uniprotId) {
+            try {
+                const res = await fetch(`https://rest.uniprot.org/uniprotkb/${uniprotId}.json`);
+                const data = await res.json();
+                
+                proteinAnnotations = [];
+                
+                if (data.features) {
+                    data.features.forEach(f => {
+                        if (['Active site', 'Binding site', 'Site', 'Metal binding', 
+                             'DNA binding', 'Nucleotide binding', 'Domain', 'Region'].includes(f.type)) {
+                            proteinAnnotations.push({
+                                type: f.type,
+                                start: f.location?.start?.value,
+                                end: f.location?.end?.value,
+                                description: f.description || f.type
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to fetch annotations:', e);
+            }
+        }
+        
+        // ============================================
+        // FETCH CLINVAR
+        // ============================================
+        async function fetchClinVar(gene) {
+            clinvarVariants = [];
+            
+            try {
+                // Search ClinVar for pathogenic variants
+                const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${gene}[gene]+AND+(pathogenic[clinsig]+OR+likely_pathogenic[clinsig])&retmax=200&retmode=json`;
+                const searchRes = await fetch(searchUrl);
+                const searchData = await searchRes.json();
+                
+                if (searchData.esearchresult?.idlist?.length > 0) {
+                    const ids = searchData.esearchresult.idlist.slice(0, 100).join(',');
+                    const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=clinvar&id=${ids}&retmode=json`;
+                    const summaryRes = await fetch(summaryUrl);
+                    const summaryData = await summaryRes.json();
+                    
+                    if (summaryData.result) {
+                        Object.values(summaryData.result).forEach(v => {
+                            if (v.uid && v.title) {
+                                // Parse protein change - look for p.XXX###
+                                const match = v.title.match(/p\.([A-Za-z]{3})(\d+)/);
+                                if (match) {
+                                    const aa = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+                                    clinvarVariants.push({
+                                        position: parseInt(match[2]),
+                                        aa: aa,
+                                        change: v.title.split(':').pop()?.trim() || v.title,
+                                        significance: v.clinical_significance?.description || 'Pathogenic',
+                                        id: v.uid
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+                
+                // Sort by position
+                clinvarVariants.sort((a, b) => a.position - b.position);
+                
+            } catch (e) {
+                console.error('ClinVar fetch failed:', e);
+            }
+        }
+        
+        // ============================================
+        // LOAD STRUCTURE
+        // ============================================
+        async function loadSelectedStructure() {
+            if (!selectedStructure) {
+                setStatus('Please select a structure', 'error');
+                return;
+            }
+            
+            currentResidue = parseInt(document.getElementById('residue-input').value) || null;
+            
+            document.getElementById('load-btn').disabled = true;
+            setStatus('Loading structure...', 'loading');
+            
+            try {
+                if (selectedStructure.type === 'predicted') {
+                    // Fetch AlphaFold
+                    const afRes = await fetch(`https://alphafold.ebi.ac.uk/api/prediction/${selectedStructure.uniprotId}`);
+                    const afData = await afRes.json();
+                    const pdbUrl = afData[0]?.pdbUrl;
+                    if (!pdbUrl) throw new Error('AlphaFold structure not available');
+                    
+                    const pdbRes = await fetch(pdbUrl);
+                    pdbData = await pdbRes.text();
+                } else {
+                    // Fetch PDB
+                    const pdbRes = await fetch(`https://files.rcsb.org/download/${selectedStructure.id}.pdb`);
+                    if (!pdbRes.ok) throw new Error('Failed to fetch PDB');
+                    pdbData = await pdbRes.text();
+                }
+                
+                parseStructure();
+                displayStructure();
+                
+                document.getElementById('analysis-panel').classList.remove('hidden');
+                
+                if (currentResidue) {
+                    analyzeNeighborhood();
+                }
+                
+                updatePatientVariantsDisplay();
+                
+                setStatus(`✓ Loaded ${selectedStructure.id}`, 'success');
+                
+            } catch (error) {
+                setStatus('Error: ' + error.message, 'error');
+                console.error(error);
+            }
+            
+            document.getElementById('load-btn').disabled = false;
+        }
+        
+        // ============================================
+        // PARSE STRUCTURE
+        // ============================================
+        function parseStructure() {
+            residueCoords.clear();
+            
+            pdbData.split('\n').forEach(line => {
+                if (line.startsWith('ATOM') && line.substring(12, 16).trim() === 'CA') {
+                    const chain = line.substring(21, 22);
+                    const resName = line.substring(17, 20).trim();
+                    const resNum = parseInt(line.substring(22, 26).trim());
+                    const x = parseFloat(line.substring(30, 38));
+                    const y = parseFloat(line.substring(38, 46));
+                    const z = parseFloat(line.substring(46, 54));
+                    const bfactor = parseFloat(line.substring(60, 66)) || 0;
+                    
+                    // Store by chain_resNum
+                    const key = `${chain}_${resNum}`;
+                    if (!residueCoords.has(key)) {
+                        residueCoords.set(key, { chain, resName, resNum, x, y, z, bfactor });
+                    }
+                }
+            });
+        }
+        
+        // ============================================
+        // DISPLAY STRUCTURE
+        // ============================================
+        function displayStructure() {
+            viewer.removeAllModels();
+            viewer.removeAllLabels();
+            viewer.removeAllShapes();
+            
+            viewer.addModel(pdbData, 'pdb');
+            
+            // Default: cartoon by chain (green shades)
+            viewer.setStyle({}, {cartoon: {color: '#2d6a4f'}});
+            
+            // Find active sites from annotations
+            const activeSiteResidues = new Set();
+            const bindingSiteResidues = new Set();
+            
+            proteinAnnotations.forEach(ann => {
+                if (ann.type === 'Active site' && ann.start) {
+                    for (let i = ann.start; i <= (ann.end || ann.start); i++) {
+                        activeSiteResidues.add(i);
+                    }
+                }
+                if (ann.type === 'Binding site' && ann.start) {
+                    for (let i = ann.start; i <= (ann.end || ann.start); i++) {
+                        bindingSiteResidues.add(i);
+                    }
+                }
+            });
+            
+            // Highlight active sites (blue)
+            activeSiteResidues.forEach(resi => {
+                viewer.setStyle({resi: resi}, {stick: {color: '#58a6ff', radius: 0.25}});
+                viewer.addLabel(`${resi}`, {
+                    position: {resi: resi},
+                    backgroundColor: '#58a6ff',
+                    fontColor: 'white',
+                    fontSize: 10
+                });
+            });
+            
+            // Highlight binding sites (cyan)
+            bindingSiteResidues.forEach(resi => {
+                if (!activeSiteResidues.has(resi)) {
+                    viewer.setStyle({resi: resi}, {stick: {color: '#7dd3fc', radius: 0.2}});
+                }
+            });
+            
+            // Highlight pathogenic ClinVar variants (small red)
+            clinvarVariants.forEach(v => {
+                if (!activeSiteResidues.has(v.position) && v.position !== currentResidue) {
+                    viewer.setStyle({resi: v.position}, {stick: {color: '#f85149', radius: 0.15}});
+                }
+            });
+            
+            // Highlight variant of interest (red, prominent)
+            if (currentResidue) {
+                viewer.setStyle({resi: currentResidue}, {stick: {color: '#ff6b6b', radius: 0.35}});
+                viewer.addLabel(`${currentResidue}`, {
+                    position: {resi: currentResidue},
+                    backgroundColor: '#ff6b6b',
+                    fontColor: 'white',
+                    fontSize: 14
+                });
+                
+                // Flanking residues (orange)
+                [currentResidue - 1, currentResidue + 1].forEach(r => {
+                    if (!activeSiteResidues.has(r)) {
+                        viewer.setStyle({resi: r}, {stick: {color: '#ff9f43', radius: 0.2}});
+                    }
+                });
+            }
+            
+            viewer.zoomTo();
+            viewer.render();
+        }
+        
+        // ============================================
+        // ANALYZE NEIGHBORHOOD
+        // ============================================
+        function analyzeNeighborhood() {
+            if (!currentResidue) {
+                document.getElementById('residue-list').innerHTML = 'Enter a residue number to analyze';
+                return;
+            }
+            
+            // Find variant coordinates
+            let variantCoord = null;
+            let variantChain = 'A';
+            
+            residueCoords.forEach((data, key) => {
+                if (data.resNum === currentResidue && !variantCoord) {
+                    variantCoord = data;
+                    variantChain = data.chain;
+                }
+            });
+            
+            if (!variantCoord) {
+                document.getElementById('residue-list').innerHTML = 
+                    `<div style="color: #f85149;">Residue ${currentResidue} not found in structure</div>`;
+                document.getElementById('finding-text').innerHTML = 'Residue not found in structure. Try a different structure or check the residue number.';
+                return;
+            }
+            
+            // Get annotation sets
+            const activeSites = new Set();
+            const bindingSites = new Set();
+            proteinAnnotations.forEach(ann => {
+                if (ann.type === 'Active site') {
+                    for (let i = ann.start; i <= (ann.end || ann.start); i++) activeSites.add(i);
+                }
+                if (ann.type === 'Binding site') {
+                    for (let i = ann.start; i <= (ann.end || ann.start); i++) bindingSites.add(i);
+                }
+            });
+            
+            const pathogenicPositions = new Set(clinvarVariants.map(v => v.position));
+            
+            // Calculate distances
+            const nearby = [];
+            residueCoords.forEach((data, key) => {
+                if (data.chain !== variantChain || data.resNum === currentResidue) return;
+                
+                const dist = Math.sqrt(
+                    Math.pow(data.x - variantCoord.x, 2) +
+                    Math.pow(data.y - variantCoord.y, 2) +
+                    Math.pow(data.z - variantCoord.z, 2)
+                );
+                
+                if (dist <= analysisRadius) {
+                    nearby.push({ ...data, distance: dist.toFixed(1) });
+                }
+            });
+            
+            nearby.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+            
+            // Build results table
+            let html = '';
+            const histidines = [];
+            let closestActiveSite = null;
+            
+            nearby.forEach(r => {
+                const props = AA_PROPS[r.resName] || {charge: '?', note: ''};
+                let rowClass = '';
+                let notes = props.note;
+                
+                if (r.resName === 'HIS') {
+                    rowClass = 'his';
+                    histidines.push(r);
+                }
+                if (activeSites.has(r.resNum)) {
+                    rowClass = 'catalytic';
+                    notes = '🔵 ACTIVE SITE';
+                    if (!closestActiveSite) closestActiveSite = r;
+                }
+                if (bindingSites.has(r.resNum) && !activeSites.has(r.resNum)) {
+                    rowClass = 'binding';
+                    notes = '🔹 Binding site';
+                }
+                if (['ARG', 'LYS'].includes(r.resName) && !rowClass) {
+                    rowClass = 'charged-pos';
+                }
+                if (pathogenicPositions.has(r.resNum)) {
+                    rowClass = 'pathogenic';
+                    notes = '⚠️ Pathogenic';
+                }
+                
+                html += `<div class="residue-row ${rowClass}" onclick="focusResidue(${r.resNum}, '${r.chain}')">
+                    <span>${r.resName}${r.resNum}</span>
+                    <span>${r.distance}Å</span>
+                    <span>${props.charge}</span>
+                    <span>${notes}</span>
+                </div>`;
+            });
+            
+            document.getElementById('residue-list').innerHTML = html || 'No residues within radius';
+            
+            // Generate key finding
+            generateKeyFinding(variantCoord, nearby, histidines, closestActiveSite, activeSites, pathogenicPositions);
+        }
+        
+        function generateKeyFinding(variantCoord, nearby, histidines, closestActiveSite, activeSites, pathogenic) {
+            const variantAA = variantCoord.resName;
+            const props = AA_PROPS[variantAA] || {};
+            let findings = [];
+            
+            // Is variant itself an active site?
+            if (activeSites.has(currentResidue)) {
+                findings.push(`<strong style="color: #f85149;">⚠️ This residue IS an annotated active site!</strong>`);
+            }
+            
+            // Closest active site
+            if (closestActiveSite) {
+                findings.push(`Closest active site: <strong>${closestActiveSite.resName}${closestActiveSite.resNum}</strong> at ${closestActiveSite.distance}Å`);
+            }
+            
+            // Histidine analysis
+            if (variantAA === 'HIS') {
+                if (histidines.length === 0) {
+                    findings.push(`<strong style="color: #7ee787;">His${currentResidue} is the ONLY histidine within ${analysisRadius}Å!</strong><br>
+                    <em>Histidine's unique pKa (~6) enables acid-base catalysis at physiological pH. 
+                    No other amino acid can do this.</em>`);
+                } else {
+                    findings.push(`Other histidines within ${analysisRadius}Å: ${histidines.map(h => `His${h.resNum} (${h.distance}Å)`).join(', ')}`);
+                }
+            } else if (histidines.length > 0) {
+                findings.push(`Histidines nearby: ${histidines.map(h => `His${h.resNum} (${h.distance}Å)`).join(', ')}`);
+            }
+            
+            // Pathogenic variants nearby
+            const nearbyPathogenic = nearby.filter(r => pathogenic.has(r.resNum));
+            if (nearbyPathogenic.length > 0) {
+                findings.push(`<span style="color: #f85149;">⚠️ ${nearbyPathogenic.length} known pathogenic variant(s) within ${analysisRadius}Å</span>`);
+            }
+            
+            // pLDDT (AlphaFold confidence)
+            if (selectedStructure?.type === 'predicted' && variantCoord.bfactor > 0) {
+                const plddt = variantCoord.bfactor;
+                let conf = plddt > 90 ? 'very high' : plddt > 70 ? 'confident' : plddt > 50 ? 'low' : 'very low';
+                let confColor = plddt > 90 ? '#7ee787' : plddt > 70 ? '#58a6ff' : '#f85149';
+                findings.push(`AlphaFold pLDDT: <strong style="color: ${confColor};">${plddt.toFixed(0)}</strong> (${conf} confidence)`);
+            }
+            
+            // Amino acid properties
+            if (props.note) {
+                findings.push(`${variantAA} properties: ${props.note}`);
+            }
+            
+            document.getElementById('finding-text').innerHTML = findings.join('<br><br>') || 'No significant structural findings';
+        }
+        
+        // ============================================
+        // PATIENT VARIANTS DISPLAY
+        // ============================================
+        function updatePatientVariantsDisplay() {
+            const container = document.getElementById('patient-variants');
+            
+            if (clinvarVariants.length === 0) {
+                container.innerHTML = '<div style="color: #8b949e;">No pathogenic variants found in ClinVar</div>';
+                return;
+            }
+            
+            // Filter to nearby if we have a current residue
+            let displayVariants = clinvarVariants;
+            if (currentResidue) {
+                displayVariants = clinvarVariants.filter(v => Math.abs(v.position - currentResidue) <= 50);
+            }
+            displayVariants = displayVariants.slice(0, 20);
+            
+            let html = '';
+            displayVariants.forEach(v => {
+                const dist = currentResidue ? Math.abs(v.position - currentResidue) : null;
+                const isNearby = dist !== null && dist <= analysisRadius;
+                const itemClass = isNearby ? 'pathogenic nearby' : 
+                                  v.significance.toLowerCase().includes('likely') ? 'likely-pathogenic' : 'pathogenic';
+                
+                html += `<div class="variant-item ${itemClass}" onclick="focusResidue(${v.position})">
+                    ${dist !== null ? `<span class="variant-distance">${dist} aa away</span>` : ''}
+                    <span class="variant-position">${v.aa}${v.position}</span><br>
+                    <span class="variant-sig">${v.significance}</span>
+                </div>`;
+            });
+            
+            if (clinvarVariants.length > displayVariants.length) {
+                html += `<div style="color: #8b949e; text-align: center; padding: 10px;">
+                    + ${clinvarVariants.length - displayVariants.length} more variants
+                </div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        // ============================================
+        // VIEW CONTROLS
+        // ============================================
+        function focusResidue(resNum, chain = 'A') {
+            viewer.zoomTo({resi: resNum});
+            viewer.setStyle({resi: resNum}, {stick: {color: 'white', radius: 0.3}});
+            viewer.render();
+        }
+        
+        function showOverview() {
+            displayStructure();
+            viewer.zoomTo();
+            viewer.render();
+        }
+        
+        function showVariantSite() {
+            if (currentResidue) {
+                viewer.zoomTo({resi: currentResidue});
+                viewer.render();
+            }
+        }
+        
+        function showActiveSites() {
+            const sites = proteinAnnotations.filter(a => a.type === 'Active site').map(a => a.start);
+            if (sites.length > 0) {
+                viewer.zoomTo({resi: sites});
+            }
+            viewer.render();
+        }
+        
+        function toggleAllHis() {
+            allHisShown = !allHisShown;
+            if (allHisShown) {
+                viewer.setStyle({resn: 'HIS'}, {stick: {color: '#ff6b6b', radius: 0.25}});
+            } else {
+                displayStructure();
+            }
+            viewer.render();
+        }
+        
+        function updateRadius(value) {
+            analysisRadius = parseInt(value);
+            document.getElementById('radius-value').textContent = value;
+            if (currentResidue) {
+                analyzeNeighborhood();
+                updatePatientVariantsDisplay();
+            }
+        }
+        
+        // ============================================
+        // EXAMPLES
+        // ============================================
+        function loadExample(gene, residue) {
+            document.getElementById('gene-input').value = gene;
+            document.getElementById('residue-input').value = residue;
+            searchStructures();
+        }
+        
+        // ============================================
+        // INIT
+        // ============================================
+        window.onload = initViewer;
+    </script>
+</body>
+</html>
