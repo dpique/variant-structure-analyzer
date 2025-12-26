@@ -441,10 +441,10 @@
                 </div>
 
                 <div class="controls" style="margin-top: 8px;">
-                    <button class="btn-secondary" id="toggle-pathogenic-btn" onclick="togglePathogenicVariants()">
+                    <button class="btn-warning" id="toggle-pathogenic-btn" onclick="togglePathogenicVariants()">
                         ✓ Pathogenic Variants
                     </button>
-                    <button class="btn-secondary" id="toggle-ligands-btn" onclick="toggleLigands()">
+                    <button class="btn-warning" id="toggle-ligands-btn" onclick="toggleLigands()">
                         ✓ Ligands/RNA
                     </button>
                 </div>
@@ -1560,12 +1560,12 @@
             const btn = document.getElementById('toggle-pathogenic-btn');
             if (showPathogenicVariants) {
                 btn.textContent = '✓ Pathogenic Variants';
-                btn.classList.remove('btn-warning');
-                btn.classList.add('btn-secondary');
-            } else {
-                btn.textContent = '✗ Pathogenic Variants';
                 btn.classList.remove('btn-secondary');
                 btn.classList.add('btn-warning');
+            } else {
+                btn.textContent = '✗ Pathogenic Variants';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-secondary');
             }
             displayStructure();
         }
@@ -1575,12 +1575,12 @@
             const btn = document.getElementById('toggle-ligands-btn');
             if (showLigands) {
                 btn.textContent = '✓ Ligands/RNA';
-                btn.classList.remove('btn-warning');
-                btn.classList.add('btn-secondary');
-            } else {
-                btn.textContent = '✗ Ligands/RNA';
                 btn.classList.remove('btn-secondary');
                 btn.classList.add('btn-warning');
+            } else {
+                btn.textContent = '✗ Ligands/RNA';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-secondary');
             }
             displayStructure();
         }
